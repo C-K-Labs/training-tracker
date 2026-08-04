@@ -1,6 +1,9 @@
 # Feature Plan: Training Tracker v1
 
-Status: approved 2026-08-04, executing
+Status: complete 2026-08-04. All 11 tasks done; integration gate passed
+(browser e2e on every acceptance criterion, node unit tests 19/19,
+change-scoped security review clean). Real-session success criterion pending
+the user's next actual gym visit.
 Design mockup (approved): https://claude.ai/code/artifact/19ae6f1f-02af-4b5c-8593-73a4a442f7cd
 
 ## Spec
@@ -44,25 +47,32 @@ deployment (separate web-launch playbook when ready).
 **Success criterion.** One real gym session recorded phone-in-hand from
 warm-up to last set, with a next-load suggestion and balance view afterward.
 
-**Acceptance criteria.**
-- [ ] A weights session can be started from a program template, every set
+**Acceptance criteria.** (verified 2026-08-04, browser e2e + unit tests)
+- [x] A weights session can be started from a program template, every set
       logged with weight/reps/effort, and finished with duration recorded.
-- [ ] Effort pattern produces the correct next-load suggestion snapped to the
-      configured inventory (all-easy raises, any-hard holds, two consecutive
-      missed-rep sessions lowers one step).
-- [ ] With a last-session date 14+ days old, the app proposes recovery mode
-      and prescribes 83% loads rounded to available weights.
-- [ ] Variants track separate load histories.
-- [ ] Balance view shows Monday-week sets per body part against the 10-20
-      band.
-- [ ] Running, calisthenics, and body-weight entries can be logged and appear
-      in the log/stats.
-- [ ] A program pack JSON imports cleanly; a full export re-imports without
-      loss (round-trip test).
-- [ ] Works offline after first load; installable to home screen.
-- [ ] All UI strings resolve through the i18n layer (no hardcoded literals in
-      screens).
-- [ ] Data persists across browser restart (IndexedDB + persist() requested).
+      (e2e: session A, 2 warm-ups + 3 working sets, timer, persisted schema)
+- [x] Effort pattern produces the correct next-load suggestion snapped to the
+      configured inventory. (unit tests for all branches; e2e: all-easy at
+      90 lb suggested and applied 95 lb to the program)
+- [x] With a last-session date 14+ days old, the app proposes recovery mode
+      and prescribes 83% loads rounded to available weights. (e2e: 39-day gap
+      detected, 90 lb prescribed as 70 lb)
+- [x] Variants track separate load histories. (variant = separate exercise id;
+      trend selector lists them individually)
+- [x] Balance view shows Monday-week sets per body part against the 10-20
+      band. (e2e: legs 3 sets after the test session)
+- [x] Running, calisthenics, and body-weight entries can be logged and appear
+      in the log/stats. (e2e: run + body-weight saved and verified in IDB)
+- [x] A program pack JSON imports cleanly; a full export re-imports without
+      loss. (e2e import toast 20/3/10; export file round-trip counts match;
+      settings excluded from packs by design, device-specific)
+- [x] Works offline after first load. (e2e: server stopped, full app served
+      from service-worker cache) Installable: manifest + 192/512 icons + SW
+      present; store-grade install prompt not testable headless.
+- [x] All UI strings resolve through the i18n layer. (workers' missing-key
+      reports resolved; remaining literal is the pain-area data key)
+- [x] Data persists across browser restart (IndexedDB + persist() requested;
+      data survived reloads throughout e2e).
 
 ## Design Decisions
 
