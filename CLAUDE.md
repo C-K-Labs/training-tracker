@@ -11,7 +11,8 @@
   server for service-worker testing (e.g. python -m http.server).
 
 ## Test
-- No test harness yet. When tests land, record the exact command here.
+- node --test tests/rules.test.mjs
+  (run from the project root; covers the pure rule engine in js/rules.js)
 
 ## Data Conventions (from training-program-reference.md)
 - Smith machine and barbell loads EXCLUDE the bar weight.
