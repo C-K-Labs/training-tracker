@@ -5,9 +5,10 @@
 *.pem
 credentials*
 
-# Personal training data exports - stays on device, never in the public repo
+# Personal training data - stays local, never in the public repo
 exports/
 *.backup.json
+training-program-reference.md
 
 # Dependencies (future-proofing; no npm yet)
 node_modules/
