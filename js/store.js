@@ -3,7 +3,7 @@
 // All personal data lives here on the device; the repo ships nothing personal.
 
 const DB_NAME = "training-tracker";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 export const PACK_FORMAT_VERSION = 1;
 
 let db = null;
@@ -22,10 +22,49 @@ export function openDB() {
       }
       if (!d.objectStoreNames.contains("bodyweight")) d.createObjectStore("bodyweight", { keyPath: "date" });
       if (!d.objectStoreNames.contains("kv")) d.createObjectStore("kv", { keyPath: "key" });
+      // v2 (B2): daily water intake, one record per calendar date.
+      if (!d.objectStoreNames.contains("water")) d.createObjectStore("water", { keyPath: "date" });
     };
-    req.onsuccess = () => { db = req.result; resolve(db); };
+    req.onsuccess = () => {
+      db = req.result;
+      // One-time, idempotent post-open migration (v1 -> v2): existing "run"
+      // sessions become "cardio" sessions. Guarded by a kv flag so it never
+      // re-runs after it has completed once; also naturally idempotent since
+      // migrated sessions no longer have kind "run".
+      migrateToV2()
+        .catch((err) => { console.error("v2 migration failed", err); })
+        .then(() => resolve(db));
+    };
     req.onerror = () => reject(req.error);
   });
+}
+
+// Converts a legacy run session into a cardio session in place, keeping the
+// old `run` field untouched on the object so no data is lost.
+function runSessionToCardio(session) {
+  const run = session.run || {};
+  const avgHr = typeof run.avgHr === "number" && Number.isFinite(run.avgHr) && run.avgHr > 0 ? run.avgHr : null;
+  return {
+    ...session,
+    kind: "cardio",
+    cardio: {
+      activity: "running",
+      minutes: num(run.minutes, 0),
+      avgHr,
+      distanceKm: null,
+      rpe: null,
+      note: str(run.pace, ""),
+    },
+  };
+}
+
+async function migrateToV2() {
+  const flag = await get("kv", "migrations");
+  if (flag?.v2) return;
+  const sessions = await getAll("sessions");
+  const toMigrate = sessions.filter((s) => s.kind === "run").map(runSessionToCardio);
+  if (toMigrate.length > 0) await bulkPut("sessions", toMigrate);
+  await put("kv", { ...(flag || {}), key: "migrations", v2: true });
 }
 
 function tx(storeName, mode, fn) {
@@ -98,6 +137,16 @@ export const DEFAULT_SETTINGS = {
   recoveryRule: { gapDays: 14, factor: 0.83 },
   recovery: { active: false, startedAt: null },
   lastBackupAt: null,
+  // Bodyweight unit (B4): independent of displayUnit (which governs load
+  // formatting only). Governs bodyweight entry + protein coefficient display;
+  // storage always stays kg.
+  bodyweightUnit: "kg",
+  // Protein target coefficient, g per kg bodyweight (B3). Documented ranges:
+  // general 1.2-1.6, hypertrophy 1.6-2.2, cutting 1.8-2.7 g/kg.
+  proteinCoef: 1.6,
+  // Water guide (B2): a cup is cupMl; waterTargetMl is a guide, not a cap.
+  waterTargetMl: 2000,
+  cupMl: 250,
 };
 
 export async function getSettings() {
@@ -126,6 +175,16 @@ export async function requestPersist() {
     if (navigator.storage?.persist) return await navigator.storage.persist();
   } catch { /* not supported */ }
   return false;
+}
+
+// -------------------------------------------------------------------- water
+
+export function getWater(date) {
+  return get("water", date);
+}
+
+export function putWater(date, ml) {
+  return put("water", { date, ml });
 }
 
 // ------------------------------------------------------- pack import/export
@@ -162,7 +221,7 @@ function sanitizeSet(s) {
 
 function sanitizeProgram(p) {
   if (!p || typeof p !== "object" || typeof p.id !== "string" || typeof p.name !== "string") return null;
-  const kinds = ["weights", "run", "calisthenics"];
+  const kinds = ["weights", "cardio", "calisthenics"];
   return {
     id: p.id,
     name: p.name,
@@ -179,18 +238,53 @@ function sanitizeProgram(p) {
   };
 }
 
+// Cardio detail (B1): activity is either one of the fixed slugs or free text
+// typed for "custom"; rpe is the same 3-level scale used for effort.
+function sanitizeCardio(c) {
+  if (!c || typeof c !== "object") return null;
+  return {
+    activity: str(c.activity, "running"),
+    minutes: num(c.minutes),
+    distanceKm: typeof c.distanceKm === "number" && Number.isFinite(c.distanceKm) ? c.distanceKm : null,
+    avgHr: typeof c.avgHr === "number" && Number.isFinite(c.avgHr) && c.avgHr > 0 ? c.avgHr : null,
+    rpe: ["easy", "normal", "hard"].includes(c.rpe) ? c.rpe : null,
+    note: str(c.note, ""),
+  };
+}
+
 function sanitizeSession(s) {
   if (!s || typeof s !== "object" || typeof s.id !== "string" || typeof s.date !== "string") return null;
-  const kinds = ["weights", "run", "calisthenics"];
+  const kinds = ["weights", "cardio", "calisthenics"];
+  // Legacy pack import: "run" is accepted and mapped to "cardio", exactly
+  // like the in-place v1 -> v2 database migration (runSessionToCardio above).
+  const kindRaw = s.kind === "run" ? "cardio" : s.kind;
+  const kind = kinds.includes(kindRaw) ? kindRaw : "weights";
   const daily = s.daily && typeof s.daily === "object" ? s.daily : {};
   const pain = {};
   if (daily.pain && typeof daily.pain === "object") {
     for (const [area, v] of Object.entries(daily.pain)) pain[str(area)] = num(v);
   }
+
+  const run = s.run && typeof s.run === "object"
+    ? { minutes: num(s.run.minutes), avgHr: num(s.run.avgHr) || null, pace: str(s.run.pace, "") }
+    : null;
+
+  let cardio = sanitizeCardio(s.cardio);
+  if (!cardio && s.kind === "run" && run) {
+    cardio = sanitizeCardio({
+      activity: "running",
+      minutes: run.minutes,
+      avgHr: run.avgHr,
+      distanceKm: null,
+      rpe: null,
+      note: run.pace,
+    });
+  }
+
   return {
     id: s.id,
     date: s.date,
-    kind: kinds.includes(s.kind) ? s.kind : "weights",
+    kind,
     programId: str(s.programId, ""),
     programName: str(s.programName, ""),
     recovery: boolVal(s.recovery),
@@ -211,15 +305,23 @@ function sanitizeSession(s) {
           sets: Array.isArray(e.sets) ? e.sets.map(sanitizeSet).filter(Boolean) : [],
         }))
       : [],
-    run: s.run && typeof s.run === "object"
-      ? { minutes: num(s.run.minutes), avgHr: num(s.run.avgHr) || null, pace: str(s.run.pace, "") }
-      : null,
+    // Legacy field, kept untouched for no-data-loss (matches the migration).
+    run,
+    cardio,
   };
 }
 
+// Plausibility gates keep obviously-bad imported numbers out (B5): percent
+// body fat and skeletal muscle mass both have wide but bounded human ranges.
 function sanitizeBodyweight(b) {
   if (!b || typeof b !== "object" || typeof b.date !== "string") return null;
-  return { date: b.date, kg: num(b.kg), fasted: boolVal(b.fasted) };
+  const bodyFatPct = typeof b.bodyFatPct === "number" && Number.isFinite(b.bodyFatPct) && b.bodyFatPct >= 3 && b.bodyFatPct <= 70
+    ? b.bodyFatPct
+    : null;
+  const muscleMassKg = typeof b.muscleMassKg === "number" && Number.isFinite(b.muscleMassKg) && b.muscleMassKg >= 10 && b.muscleMassKg <= 80
+    ? b.muscleMassKg
+    : null;
+  return { date: b.date, kg: num(b.kg), fasted: boolVal(b.fasted), bodyFatPct, muscleMassKg };
 }
 
 export function validatePack(pack) {

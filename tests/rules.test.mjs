@@ -7,6 +7,8 @@ import {
   weekKey, weeklyBalance,
   monthlyProgressPct, overshootWarning,
   KG_PER_LB, lbToKg, kgToLb, formatLoad, parseLoadInput, restSecondsFor,
+  proteinTargetG, proteinCoefDisplay, bodyweightDisplay, leanMassKg,
+  paceText, weeklyCardioMinutes,
 } from "../js/rules.js";
 
 const INVENTORY = {
@@ -212,4 +214,46 @@ test("restSecondsFor: per-exercise override wins over the global default", () =>
   assert.equal(restSecondsFor("smith-squat", settings), 150);
   assert.equal(restSecondsFor("ohp", settings), 90);
   assert.equal(restSecondsFor("ohp", { restOverrides: {} }), 90); // default fallback when restDefaultSec missing
+});
+
+// ---------------------------------------------- cardio / body comp (v1.1, B)
+
+test("proteinTargetG: rounds weight x coefficient to whole grams", () => {
+  assert.equal(proteinTargetG(75, 1.6), 120);
+  assert.equal(proteinTargetG(74.6, 1.8), 134); // 134.28 -> 134
+});
+
+test("proteinCoefDisplay: kg mode shows g/kg, lb mode converts to g/lb", () => {
+  assert.equal(proteinCoefDisplay(1.6, "kg"), "1.6 g/kg");
+  assert.equal(proteinCoefDisplay(1.6, "lb"), "0.73 g/lb");
+  assert.equal(proteinCoefDisplay(2.2, "kg"), "2.2 g/kg");
+});
+
+test("bodyweightDisplay: unit-aware, rounded to 0.1", () => {
+  assert.equal(bodyweightDisplay(74.8, "kg"), "74.8 kg");
+  assert.equal(bodyweightDisplay(74.8, "lb"), "164.9 lb");
+});
+
+test("leanMassKg: fat-free mass from weight and body fat percent", () => {
+  assert.equal(leanMassKg(80, 20), 64);
+  assert.equal(leanMassKg(80, null), null);
+});
+
+test("paceText: minutes/distance to pace string; null when either is missing or zero", () => {
+  assert.equal(paceText(30, 4.5), "6'40\"/km");
+  assert.equal(paceText(0, 5), null);
+  assert.equal(paceText(30, 0), null);
+  assert.equal(paceText(30, null), null);
+  assert.equal(paceText(null, 5), null);
+});
+
+test("weeklyCardioMinutes: sums cardio-kind sessions in the given Monday-week only", () => {
+  const sessions = [
+    { kind: "cardio", date: "2026-08-03", cardio: { minutes: 30 } },
+    { kind: "cardio", date: "2026-08-05", cardio: { minutes: 45 } },
+    { kind: "weights", date: "2026-08-04", entries: [] },
+    { kind: "cardio", date: "2026-07-27", cardio: { minutes: 20 } }, // prior week
+  ];
+  assert.equal(weeklyCardioMinutes(sessions, "2026-08-03"), 75);
+  assert.equal(weeklyCardioMinutes(sessions, "2026-07-27"), 20);
 });

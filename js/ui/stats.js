@@ -5,8 +5,11 @@
 // with textContent; nothing user-supplied is ever interpolated into HTML.
 
 import { t } from "../i18n.js";
-import { getAll } from "../store.js";
-import { weekKey, weeklyBalance, overshootWarning, workingSets } from "../rules.js";
+import { getAll, getSettings } from "../store.js";
+import {
+  weekKey, weeklyBalance, overshootWarning, workingSets,
+  kgToLb, proteinTargetG, proteinCoefDisplay, leanMassKg, weeklyCardioMinutes,
+} from "../rules.js";
 
 export const titleKey = "tab.stats";
 export const subKey = "screen.stats.sub";
@@ -29,9 +32,13 @@ const BAND_HI = 20;
 const BAND_AXIS_MIN = 24;
 const MAX_TREND_EXERCISES = 8;
 
-// Body-weight is stored in kilograms by schema; the unit is a data
-// convention like the per-exercise unit, not a translated label.
-const BODYWEIGHT_UNIT = "kg";
+// WHO moderate-intensity cardio guidance (B6): 150-300 min/week.
+const WHO_CARDIO_LO = 150;
+const WHO_CARDIO_HI = 300;
+const WHO_AXIS_MIN = 350;
+
+// Lean-mass-preserving analysis sentence (B5): treat sub-0.3kg drift as noise.
+const LEAN_STABLE_KG = 0.3;
 
 // ----------------------------------------------------------------- helpers
 
@@ -96,11 +103,25 @@ function niceBounds(min, max) {
 
 // ------------------------------------------------------------------- tiles
 
-function bodyweightTile(bodyweight) {
+function bwUnit(settings) {
+  return settings.bodyweightUnit === "lb" ? "lb" : "kg";
+}
+
+function latestBy(list, dateOf = (x) => x.date) {
+  return list.reduce((best, item) => (!best || dateOf(item) > dateOf(best) ? item : best), null);
+}
+
+// Converts a stored kg value to the display unit, rounded to 0.1.
+function toUnit(kg, unit) {
+  return unit === "lb" ? kgToLb(kg) : Math.round(kg * 10) / 10;
+}
+
+function bodyweightTile(bodyweight, settings) {
   const card = el("div", "card tile");
   card.appendChild(el("h2", null, t("stats.weight.title")));
 
-  const latest = bodyweight.reduce((best, b) => (!best || b.date > best.date ? b : best), null);
+  const unit = bwUnit(settings);
+  const latest = latestBy(bodyweight);
   const big = el("div", "big");
   const cap = el("div", "cap");
 
@@ -108,8 +129,8 @@ function bodyweightTile(bodyweight) {
     big.textContent = "-";
     cap.textContent = t("common.none");
   } else {
-    big.appendChild(document.createTextNode(`${fmtNum(latest.kg)} `));
-    big.appendChild(el("small", null, t("unit.kg")));
+    big.appendChild(document.createTextNode(`${fmtNum(toUnit(latest.kg, unit))} `));
+    big.appendChild(el("small", null, t(`today.weight.unit.${unit}`)));
     const date = fmtMD(latest.date);
     cap.textContent = latest.fasted
       ? t("stats.weight.cap", { date })
@@ -118,6 +139,58 @@ function bodyweightTile(bodyweight) {
 
   card.appendChild(big);
   card.appendChild(cap);
+
+  const protein = el("div", "cap");
+  protein.textContent = latest
+    ? t("stats.weight.protein", {
+        g: proteinTargetG(latest.kg, settings.proteinCoef),
+        coef: proteinCoefDisplay(settings.proteinCoef, unit),
+      })
+    : t("stats.weight.protein.none");
+  card.appendChild(protein);
+  return card;
+}
+
+function bodyFatTile(bodyweight) {
+  const card = el("div", "card tile");
+  card.appendChild(el("h2", null, t("stats.fat.title")));
+
+  const latest = latestBy(bodyweight.filter((b) => b.bodyFatPct != null));
+  const big = el("div", "big");
+  const cap = el("div", "cap");
+
+  if (!latest) {
+    big.textContent = "-";
+    cap.textContent = t("common.none");
+  } else {
+    big.appendChild(document.createTextNode(`${fmtNum(latest.bodyFatPct)} `));
+    big.appendChild(el("small", null, "%"));
+    cap.textContent = fmtMD(latest.date);
+  }
+
+  card.append(big, cap);
+  return card;
+}
+
+function muscleTile(bodyweight, settings) {
+  const card = el("div", "card tile");
+  card.appendChild(el("h2", null, t("stats.muscle.title")));
+
+  const unit = bwUnit(settings);
+  const latest = latestBy(bodyweight.filter((b) => b.muscleMassKg != null));
+  const big = el("div", "big");
+  const cap = el("div", "cap");
+
+  if (!latest) {
+    big.textContent = "-";
+    cap.textContent = t("common.none");
+  } else {
+    big.appendChild(document.createTextNode(`${fmtNum(toUnit(latest.muscleMassKg, unit))} `));
+    big.appendChild(el("small", null, t(`today.weight.unit.${unit}`)));
+    cap.textContent = fmtMD(latest.date);
+  }
+
+  card.append(big, cap);
   return card;
 }
 
@@ -317,6 +390,184 @@ function trendCard(sessions, exercisesById) {
   return card;
 }
 
+// -------------------------------------------------------- body comp (B5)
+
+// Two-series chart on a shared y-axis: weight (--chart-main) always present,
+// muscle mass (--chart-good) only when 2+ entries have it. Body fat percent
+// is a different unit, so it renders as small chips below rather than a
+// third plotted line (kept legible in both themes without a dual axis).
+function buildBodyChart(history, unit) {
+  const svg = svgEl("svg", {
+    class: "chart-svg",
+    viewBox: `0 0 ${VIEW_W} ${VIEW_H}`,
+    role: "img",
+    preserveAspectRatio: "xMidYMid meet",
+  });
+
+  const muscleHistory = history.filter((h) => h.muscle != null);
+  const allVals = [...history.map((h) => h.weight), ...muscleHistory.map((h) => h.muscle)];
+  const { lo, hi, step } = niceBounds(Math.min(...allVals), Math.max(...allVals));
+  const spanY = hi - lo || 1;
+  const yOf = (v) => PLOT_Y1 - ((v - lo) / spanY) * (PLOT_Y1 - PLOT_Y0);
+  const xOf = (i) => PLOT_X0 + (i * (PLOT_X1 - PLOT_X0)) / (history.length - 1);
+  const r1 = (v) => Math.round(v * 10) / 10;
+
+  for (let g = 0; g < 3; g++) {
+    const value = lo + step * g;
+    const y = r1(yOf(value));
+    svg.appendChild(svgEl("line", { class: "grid-line", x1: PLOT_X0, y1: y, x2: PLOT_X1, y2: y }));
+    const label = svgEl("text", { class: "axis-text", x: PLOT_X0 - 4, y: y + 3, "text-anchor": "end" });
+    label.textContent = fmtNum(value);
+    svg.appendChild(label);
+  }
+
+  function drawSeries(points, color) {
+    const line = points.map((p, i) => `${i === 0 ? "M" : "L"}${r1(xOf(p.i))} ${r1(yOf(p.v))}`).join(" ");
+    svg.appendChild(svgEl("path", {
+      d: line, fill: "none", stroke: color, "stroke-width": "2",
+      "stroke-linecap": "round", "stroke-linejoin": "round",
+    }));
+    for (const p of points) {
+      svg.appendChild(svgEl("circle", { cx: r1(xOf(p.i)), cy: r1(yOf(p.v)), r: 3, fill: color }));
+    }
+    return points[points.length - 1];
+  }
+
+  const weightPoints = history.map((h, i) => ({ i, v: h.weight }));
+  const lastWeight = drawSeries(weightPoints, "var(--chart-main)");
+  const weightLabel = svgEl("text", {
+    class: "axis-text", x: xOf(lastWeight.i), y: Math.max(11, yOf(lastWeight.v) - 11),
+    "text-anchor": "end", fill: "var(--chart-main)", "font-size": "11", "font-weight": "700",
+  });
+  weightLabel.textContent = `${fmtNum(lastWeight.v)} ${unit}`;
+  svg.appendChild(weightLabel);
+
+  if (muscleHistory.length >= 2) {
+    const musclePoints = history
+      .map((h, i) => (h.muscle != null ? { i, v: h.muscle } : null))
+      .filter(Boolean);
+    const lastMuscle = drawSeries(musclePoints, "var(--chart-good)");
+    const muscleLabel = svgEl("text", {
+      class: "axis-text", x: xOf(lastMuscle.i), y: Math.min(PLOT_Y1 - 4, yOf(lastMuscle.v) + 14),
+      "text-anchor": "end", fill: "var(--chart-good)", "font-size": "11", "font-weight": "700",
+    });
+    muscleLabel.textContent = `${fmtNum(lastMuscle.v)} ${unit}`;
+    svg.appendChild(muscleLabel);
+  }
+
+  for (const i of xLabelIndexes(history.length)) {
+    const anchor = i === 0 ? "start" : i === history.length - 1 ? "end" : "middle";
+    const label = svgEl("text", { class: "axis-text", x: xOf(i), y: XLABEL_Y, "text-anchor": anchor });
+    label.textContent = fmtMD(history[i].date);
+    svg.appendChild(label);
+  }
+
+  return svg;
+}
+
+function bodyCompTrendCard(bodyweight, settings) {
+  const card = el("div", "card");
+  card.appendChild(el("h2", null, t("stats.bodytrend.title")));
+
+  const sorted = [...bodyweight].sort((a, b) => a.date.localeCompare(b.date));
+  if (sorted.length < 2) {
+    card.appendChild(el("div", "empty", t("stats.bodytrend.empty")));
+    return card;
+  }
+
+  const unit = bwUnit(settings);
+  const history = sorted.map((b) => ({
+    date: b.date,
+    weight: toUnit(b.kg, unit),
+    muscle: b.muscleMassKg != null ? toUnit(b.muscleMassKg, unit) : null,
+    fat: b.bodyFatPct,
+  }));
+
+  const wrap = el("div", "chart-wrap");
+  wrap.appendChild(buildBodyChart(history, unit));
+  card.appendChild(wrap);
+
+  const fatPoints = history.filter((h) => h.fat != null).slice(-6);
+  if (fatPoints.length > 0) {
+    const row = el("div", "chip-list");
+    for (const p of fatPoints) {
+      row.appendChild(el("span", "chip neutral", t("stats.bodytrend.fat.chip", {
+        date: fmtMD(p.date), pct: fmtNum(p.fat),
+      })));
+    }
+    card.appendChild(row);
+  }
+  return card;
+}
+
+// Factual comparison only (first vs last entry in the current data set); no
+// prescriptive advice beyond restating the protein target (B5).
+function analysisCard(bodyweight, settings) {
+  const sorted = [...bodyweight].sort((a, b) => a.date.localeCompare(b.date));
+  if (sorted.length < 2) return null;
+  const first = sorted[0];
+  const last = sorted[sorted.length - 1];
+  const unit = bwUnit(settings);
+
+  const dir = (deltaKg) => (deltaKg > 0 ? t("stats.analysis.up") : deltaKg < 0 ? t("stats.analysis.down") : t("stats.analysis.flat"));
+  const deltaDisplay = (deltaKg) => fmtNum(toUnit(Math.abs(deltaKg), unit));
+
+  const weightDeltaKg = last.kg - first.kg;
+  const parts = [t("stats.analysis.weight", {
+    date1: fmtMD(first.date), date2: fmtMD(last.date),
+    delta: deltaDisplay(weightDeltaKg), dir: dir(weightDeltaKg), unit,
+  })];
+
+  if (first.muscleMassKg != null && last.muscleMassKg != null) {
+    const muscleDeltaKg = last.muscleMassKg - first.muscleMassKg;
+    parts.push(t("stats.analysis.muscle", { delta: deltaDisplay(muscleDeltaKg), dir: dir(muscleDeltaKg), unit }));
+  }
+
+  const leanFirst = leanMassKg(first.kg, first.bodyFatPct);
+  const leanLast = leanMassKg(last.kg, last.bodyFatPct);
+  if (leanFirst != null && leanLast != null) {
+    const leanDeltaKg = leanLast - leanFirst;
+    if (Math.abs(leanDeltaKg) < LEAN_STABLE_KG) parts.push(t("stats.analysis.lean.preserved"));
+    else if (leanDeltaKg > 0) parts.push(t("stats.analysis.lean.up"));
+    else parts.push(t("stats.analysis.lean.down"));
+  }
+
+  parts.push(t("stats.analysis.protein", { g: proteinTargetG(last.kg, settings.proteinCoef) }));
+
+  const card = el("div", "card");
+  card.appendChild(el("h2", null, t("stats.analysis.title")));
+  card.appendChild(el("div", null, parts.join(" ")));
+  return card;
+}
+
+// ------------------------------------------------------------ weekly cardio
+
+function cardioBandCard(sessions) {
+  const card = el("div", "card");
+  card.appendChild(el("h2", null, t("stats.cardio.title")));
+
+  const minutes = weeklyCardioMinutes(sessions, weekKey(todayISO()));
+  const axisMax = Math.max(WHO_AXIS_MIN, minutes);
+
+  const head = el("div", "bal-head");
+  head.appendChild(el("span", null, t("stats.cardio.minutes", { n: minutes })));
+  card.appendChild(head);
+
+  const track = el("div", "bal-track");
+  const band = el("div", "bal-band");
+  band.style.left = `${(WHO_CARDIO_LO / axisMax) * 100}%`;
+  band.style.width = `${((WHO_CARDIO_HI - WHO_CARDIO_LO) / axisMax) * 100}%`;
+  track.appendChild(band);
+
+  const fill = el("div", "bal-fill");
+  fill.style.width = `${Math.min(100, (minutes / axisMax) * 100)}%`;
+  track.appendChild(fill);
+
+  card.appendChild(track);
+  card.appendChild(el("div", "bal-cap", t("stats.cardio.cap", { lo: WHO_CARDIO_LO, hi: WHO_CARDIO_HI })));
+  return card;
+}
+
 // ----------------------------------------------------------------- balance
 
 function balanceCard(sessions, exercisesById) {
@@ -359,20 +610,31 @@ function balanceCard(sessions, exercisesById) {
 // ------------------------------------------------------------------- mount
 
 export async function mount(root, ctx) {
-  const [sessions, bodyweight, exercises] = await Promise.all([
+  const [sessions, bodyweight, exercises, settings] = await Promise.all([
     getAll("sessions"),
     getAll("bodyweight"),
     getAll("exercises"),
+    getSettings(),
   ]);
 
   const exercisesById = {};
   for (const ex of exercises) exercisesById[ex.id] = ex;
 
   const tiles = el("div", "tile-row");
-  tiles.appendChild(bodyweightTile(bodyweight));
-  tiles.appendChild(weekTile(sessions));
-
+  tiles.appendChild(bodyweightTile(bodyweight, settings));
+  tiles.appendChild(bodyFatTile(bodyweight));
+  tiles.appendChild(muscleTile(bodyweight, settings));
   root.appendChild(tiles);
+
+  const tiles2 = el("div", "tile-row");
+  tiles2.appendChild(weekTile(sessions));
+  root.appendChild(tiles2);
+
+  root.appendChild(bodyCompTrendCard(bodyweight, settings));
+  const analysis = analysisCard(bodyweight, settings);
+  if (analysis) root.appendChild(analysis);
+
   root.appendChild(trendCard(sessions, exercisesById));
+  root.appendChild(cardioBandCard(sessions));
   root.appendChild(balanceCard(sessions, exercisesById));
 }

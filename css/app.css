@@ -468,3 +468,23 @@ button.chip { cursor: pointer; }
   cursor: pointer;
 }
 .chip-toggle.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+
+/* Water cups (B2): filled state = accent fill, tap toggles by one cupMl. */
+.cup-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.cup {
+  width: 34px; height: 34px; flex: none;
+  position: relative;
+  border-radius: 10px;
+  border: 1.5px solid var(--line);
+  background: var(--surface);
+  cursor: pointer;
+}
+.cup::before {
+  content: "";
+  position: absolute; inset: 6px;
+  border-radius: 6px;
+  background: var(--surface2);
+}
+.cup.filled { border-color: var(--accent); }
+.cup.filled::before { background: var(--accent); }
+.cup-count { font-size: 12px; color: var(--ink2); margin-top: 6px; }

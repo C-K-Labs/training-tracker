@@ -5,7 +5,7 @@
 // written through textContent; this module never uses innerHTML.
 
 import { t, getLang } from "../i18n.js";
-import { getAll, getSettings, saveSettings, put, newId } from "../store.js";
+import { getAll, getSettings, saveSettings, put, newId, getWater, putWater } from "../store.js";
 import * as rules from "../rules.js";
 
 export const titleKey = "tab.today";
@@ -17,6 +17,10 @@ const PAIN_AREA = "무릎";
 
 const EFFORT_LEVELS = ["hard", "normal", "easy"];
 const EFFORT_CHIP = { hard: "bad", normal: "neutral", easy: "good" };
+
+// RPE reuses the same 3-level scale/styling as set-effort chips (B1).
+const RPE_LEVELS = ["easy", "normal", "hard"];
+const CARDIO_ACTIVITIES = ["running", "cycling", "rowing", "swimming", "hiking", "walking"];
 
 // ---------------------------------------------------------------- helpers
 
@@ -219,7 +223,7 @@ function suggestBanner({ gap, onEnter }) {
 // ------------------------------------------------------------- idle view
 
 function renderIdle(root, ctx, data) {
-  const { settings, programs, sessions, exercises } = data;
+  const { settings, programs, sessions, exercises, bodyweightRecords, water } = data;
   ctx.setTimer(null);
   ctx.setSub(t("screen.today.sub.idle", { date: dateLabel() }));
 
@@ -255,8 +259,9 @@ function renderIdle(root, ctx, data) {
   }
 
   root.appendChild(renderStartCard(ctx, settings, programs));
-  root.appendChild(renderRunCard(ctx));
-  root.appendChild(renderBodyweightCard(ctx));
+  root.appendChild(renderWaterCard(ctx, settings, water));
+  root.appendChild(renderCardioCard(ctx));
+  root.appendChild(renderBodyweightCard(ctx, settings, bodyweightRecords));
   root.appendChild(renderCalisthenicsCard(ctx, exercises));
 }
 
@@ -328,26 +333,83 @@ function quickCard(titleText) {
   return { card, body };
 }
 
-function renderRunCard(ctx) {
-  const { card, body } = quickCard(t("today.run.title"));
+// Cardio quick log (B1): activity chips (fixed set + free-text custom),
+// required minutes, optional distance/HR, RPE (reuses the effort 3-chip
+// scale), free note. Pace is computed live from minutes+distance.
+function renderCardioCard(ctx) {
+  const { card, body } = quickCard(t("today.cardio.title"));
+
+  let activity = CARDIO_ACTIVITIES[0];
+  let rpe = null;
+
+  const chipRow = el("div", "filter-row");
+  const chipButtons = new Map();
+  const customInput = textInput("");
+  customInput.placeholder = t("today.cardio.custom.placeholder");
+  const customField = field(t("today.cardio.custom.label"), customInput);
+  customField.hidden = true;
+
+  function selectActivity(next) {
+    activity = next;
+    for (const [key, btn] of chipButtons) btn.classList.toggle("sel", key === next);
+    customField.hidden = next !== "custom";
+  }
+
+  for (const key of [...CARDIO_ACTIVITIES, "custom"]) {
+    const btn = el("button", "filter", t(`today.cardio.activity.${key}`));
+    btn.type = "button";
+    btn.addEventListener("click", () => selectActivity(key));
+    chipButtons.set(key, btn);
+    chipRow.appendChild(btn);
+  }
+  selectActivity(activity);
+  body.append(chipRow, customField);
+
   const minutes = numberInput("", { min: 0, step: 1 });
+  const distance = numberInput("", { min: 0, step: 0.1 });
   const hr = numberInput("", { min: 0, step: 1 });
-  const pace = textInput("");
+  hr.placeholder = "-";
+  const note = textInput("");
+  const paceLine = el("div", "hint", "");
+
+  const updatePace = () => {
+    const p = rules.paceText(num(minutes.value), num(distance.value));
+    paceLine.textContent = p ? t("today.cardio.pace", { pace: p }) : "";
+  };
+  minutes.addEventListener("input", updatePace);
+  distance.addEventListener("input", updatePace);
+
   body.append(
-    field(t("today.run.minutes"), minutes),
-    field(t("today.run.hr"), hr),
-    field(t("today.run.pace"), pace),
+    field(t("today.cardio.minutes"), minutes),
+    field(t("today.cardio.distance"), distance),
+    field(t("today.cardio.hr"), hr),
   );
+
+  const rpeRow = el("div", "effort-row");
+  for (const level of RPE_LEVELS) {
+    const btn = el("button", "effort", t(`rpe.${level}`));
+    btn.type = "button";
+    btn.dataset.level = level;
+    btn.addEventListener("click", () => {
+      rpe = rpe === level ? null : level;
+      for (const b of rpeRow.children) b.classList.toggle("sel", b.dataset.level === rpe);
+    });
+    rpeRow.appendChild(btn);
+  }
+  body.append(rpeRow, field(t("today.cardio.note"), note), paceLine);
 
   const save = el("button", "btn-primary", t("common.save"));
   save.type = "button";
   save.addEventListener("click", async () => {
+    const mins = num(minutes.value);
+    if (mins <= 0) return;
     save.disabled = true;
     const now = Date.now();
+    const activityValue = activity === "custom" ? (customInput.value.trim() || "custom") : activity;
     await put("sessions", {
       id: newId("session"),
       date: todayISO(),
-      kind: "run",
+      kind: "cardio",
       programId: "",
       programName: "",
       recovery: false,
@@ -355,7 +417,15 @@ function renderRunCard(ctx) {
       endedAt: now,
       daily: emptyDaily(),
       entries: [],
-      run: { minutes: num(minutes.value), avgHr: num(hr.value) || null, pace: pace.value },
+      run: null,
+      cardio: {
+        activity: activityValue,
+        minutes: mins,
+        distanceKm: num(distance.value) || null,
+        avgHr: num(hr.value) || null,
+        rpe,
+        note: note.value,
+      },
     });
     ctx.showToast(t("settings.saved"));
     await ctx.remount();
@@ -364,17 +434,89 @@ function renderRunCard(ctx) {
   return card;
 }
 
-function renderBodyweightCard(ctx) {
+// Water card (B2): always visible on Today, independent of session state.
+// Cup buttons show filled state up to the current amount; tapping an empty
+// cup adds one cupMl, tapping a filled cup removes one. More cups than the
+// target render once the target is exceeded (overshoot is allowed, not capped).
+function renderWaterCard(ctx, settings, water) {
+  const card = el("div", "card");
+  card.appendChild(el("h2", null, t("today.water.title")));
+
+  let ml = water?.ml || 0;
+  const target = settings.waterTargetMl || 2000;
+  const cup = settings.cupMl || 250;
+
+  const cupsRow = el("div", "cup-row");
+  const countLine = el("div", "cup-count", "");
+  card.append(cupsRow, countLine);
+
+  function render() {
+    cupsRow.replaceChildren();
+    const filled = Math.round(ml / cup);
+    const targetCups = Math.ceil(target / cup);
+    const cupsToShow = Math.max(targetCups, filled);
+    for (let i = 0; i < cupsToShow; i++) {
+      const isFilled = i < filled;
+      const btn = el("button", `cup ${isFilled ? "filled" : "empty"}`, "");
+      btn.type = "button";
+      btn.setAttribute("aria-label", t(isFilled ? "today.water.cup.remove" : "today.water.cup.add"));
+      btn.addEventListener("click", async () => {
+        ml = Math.max(0, ml + (isFilled ? -cup : cup));
+        await putWater(todayISO(), ml);
+        render();
+      });
+      cupsRow.appendChild(btn);
+    }
+    countLine.textContent = t("today.water.count", { ml, target });
+  }
+
+  render();
+  return card;
+}
+
+// Bodyweight quick log (B4/B5): entry happens in settings.bodyweightUnit
+// (converted to kg for storage); optional body fat % and muscle mass (also
+// entered in the bodyweight unit, stored kg). Shows the protein target (B3)
+// computed from the latest bodyweight entry, independent of what's typed here.
+function renderBodyweightCard(ctx, settings, bodyweightRecords) {
   const { card, body } = quickCard(t("today.bw.title"));
-  const kg = numberInput("", { min: 0, step: 0.1 });
+  const unit = settings.bodyweightUnit === "lb" ? "lb" : "kg";
+
+  const weight = numberInput("", { min: 0, step: 0.1 });
   const fasted = checkboxField(t("today.bw.fasted"), true);
-  body.append(field(t("today.bw.kg"), kg), fasted.wrap);
+  const fat = numberInput("", { min: 0, step: 0.1 });
+  const muscle = numberInput("", { min: 0, step: 0.1 });
+  body.append(
+    field(t("today.bw.weight", { unit }), weight),
+    fasted.wrap,
+    field(t("today.bw.fat"), fat),
+    field(t("today.bw.muscle", { unit }), muscle),
+  );
+
+  const latest = bodyweightRecords.reduce((best, b) => (!best || b.date > best.date ? b : best), null);
+  const proteinLine = el("div", "hint", latest
+    ? t("today.bw.protein", {
+        g: rules.proteinTargetG(latest.kg, settings.proteinCoef),
+        coef: rules.proteinCoefDisplay(settings.proteinCoef, unit),
+      })
+    : t("today.bw.protein.none"));
+  body.appendChild(proteinLine);
 
   const save = el("button", "btn-primary", t("common.save"));
   save.type = "button";
   save.addEventListener("click", async () => {
     save.disabled = true;
-    await put("bodyweight", { date: todayISO(), kg: num(kg.value), fasted: fasted.input.checked });
+    const toKg = (v) => (unit === "lb" ? rules.lbToKg(v, { round: false }) : v);
+    const kg = Math.round(toKg(num(weight.value)) * 100) / 100;
+    const bodyFatPct = fat.value === "" ? null : num(fat.value);
+    const muscleMassKg = muscle.value === "" ? null : Math.round(toKg(num(muscle.value)) * 100) / 100;
+    await put("bodyweight", {
+      date: todayISO(),
+      kg,
+      fasted: fasted.input.checked,
+      bodyFatPct,
+      muscleMassKg,
+    });
     ctx.showToast(t("settings.saved"));
     await ctx.remount();
   });
@@ -564,7 +706,7 @@ function setLine(exercise, set, label, settings) {
 }
 
 function renderActive(root, ctx, data, session) {
-  const { settings, programs, sessions, exercisesById } = data;
+  const { settings, programs, sessions, exercisesById, water } = data;
   const program = programs.find((p) => p.id === session.programId) || null;
 
   ctx.setSub(t("screen.today.sub", { date: dateLabel(), session: session.programName }));
@@ -582,6 +724,9 @@ function renderActive(root, ctx, data, session) {
   }
 
   root.appendChild(renderDailyCard(ctx, session));
+  // Water card is outside the session flow proper: it stays visible
+  // regardless of whether a weights session is active (B2).
+  root.appendChild(renderWaterCard(ctx, settings, water));
 
   const card = el("div", "card");
   root.appendChild(card);
@@ -1003,11 +1148,13 @@ renderRestBar();
 // ------------------------------------------------------------------ mount
 
 export async function mount(root, ctx) {
-  const [settings, programs, sessions, exercises] = await Promise.all([
+  const [settings, programs, sessions, exercises, bodyweightRecords, water] = await Promise.all([
     getSettings(),
     getAll("programs"),
     getAll("sessions"),
     getAll("exercises"),
+    getAll("bodyweight"),
+    getWater(todayISO()),
   ]);
   const data = {
     settings,
@@ -1015,6 +1162,8 @@ export async function mount(root, ctx) {
     sessions,
     exercises,
     exercisesById: byId(exercises),
+    bodyweightRecords,
+    water,
   };
 
   const active = findActiveSession(sessions);

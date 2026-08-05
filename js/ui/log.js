@@ -5,14 +5,24 @@
 // textContent only; nothing from the database reaches innerHTML.
 
 import { t } from "../i18n.js";
-import { getAll, del } from "../store.js";
-import { workingSets } from "../rules.js";
+import { getAll, del, getSettings } from "../store.js";
+import { workingSets, paceText, formatLoad } from "../rules.js";
 
 export const titleKey = "tab.log";
 export const subKey = "screen.log.sub";
 
-const KINDS = ["all", "weights", "run", "calisthenics", "bodyweight"];
+const KINDS = ["all", "weights", "cardio", "calisthenics", "bodyweight"];
 const weekdayFmt = new Intl.DateTimeFormat("ko", { weekday: "short" });
+
+// Fixed cardio activity slugs get a translated label; anything else (custom
+// free text, including legacy migrated "running") renders as-is.
+const CARDIO_ACTIVITY_KEYS = ["running", "cycling", "rowing", "swimming", "hiking", "walking"];
+const RPE_CHIP = { hard: "bad", normal: "neutral", easy: "good" };
+
+function cardioActivityLabel(activity) {
+  if (CARDIO_ACTIVITY_KEYS.includes(activity)) return t(`today.cardio.activity.${activity}`);
+  return activity || t("today.cardio.activity.custom");
+}
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -49,10 +59,6 @@ function sessionWorkingSets(session) {
   return out;
 }
 
-function unitLabel(exercise) {
-  return t(exercise?.unit === "kg" ? "today.weight.unit.kg" : "today.weight.unit.lb");
-}
-
 // Most frequent working-set weight; the load the session was actually run at.
 function commonLoad(sets) {
   const counts = new Map();
@@ -81,10 +87,11 @@ function buildItems(sessions, bodyweight) {
 }
 
 export async function mount(root, ctx) {
-  const [sessions, bodyweightRecords, exercises] = await Promise.all([
+  const [sessions, bodyweightRecords, exercises, settings] = await Promise.all([
     getAll("sessions"),
     getAll("bodyweight"),
     getAll("exercises"),
+    getSettings(),
   ]);
 
   const exById = {};
@@ -137,9 +144,19 @@ export async function mount(root, ctx) {
 
   function sessionMeta(body, session) {
     const sets = sessionWorkingSets(session);
-    if (session.kind === "run") {
-      const run = session.run || { minutes: 0, avgHr: null };
-      body.appendChild(el("div", "m", t("log.run.summary", { min: run.minutes, hr: run.avgHr || "-" })));
+    if (session.kind === "cardio") {
+      // Legacy migrated "run" sessions land here too (kind is rewritten to
+      // "cardio" by the store's migration/import sanitizer), so this must
+      // render correctly even when distanceKm/rpe are absent.
+      const c = session.cardio || { activity: "running", minutes: 0, distanceKm: null, avgHr: null, rpe: null, note: "" };
+      const parts = [cardioActivityLabel(c.activity), t("log.cardio.minutes", { min: c.minutes || 0 })];
+      if (c.distanceKm) parts.push(t("log.cardio.distance", { km: c.distanceKm }));
+      const pace = paceText(c.minutes, c.distanceKm);
+      if (pace) parts.push(pace);
+      if (c.avgHr) parts.push(t("log.cardio.hr", { hr: c.avgHr }));
+      body.appendChild(el("div", "m", parts.join(" · ")));
+      if (c.rpe) body.appendChild(el("span", `chip ${RPE_CHIP[c.rpe]}`, t(`rpe.${c.rpe}`)));
+      if (c.note) body.appendChild(el("div", "m", c.note));
       return;
     }
     const min = durationMin(session);
@@ -170,7 +187,9 @@ export async function mount(root, ctx) {
       const sets = workingSets(entry.sets);
       const load = commonLoad(sets);
       const parts = [];
-      if (load != null) parts.push(`${load} ${unitLabel(ex)}`);
+      // A1/A3 gap closed: this used to always show the exercise's stored
+      // unit; now it follows the global display-unit setting like Today.
+      if (load != null) parts.push(formatLoad(load, ex?.unit === "kg" ? "kg" : "lb", settings.displayUnit || "both"));
       parts.push(`${sets.length}×${repsLabel(entry.targetReps)}`);
       value.appendChild(el("span", null, parts.join(" ")));
       for (const s of sets) {

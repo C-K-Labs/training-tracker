@@ -239,3 +239,59 @@ export function restSecondsFor(exerciseId, settings) {
   if (typeof ov === "number" && Number.isFinite(ov)) return ov;
   return settings?.restDefaultSec ?? 90;
 }
+
+// ---------------------------------------------- cardio / body comp (v1.1, B)
+
+function round1(v) {
+  return Math.round(v * 10) / 10;
+}
+
+// Protein target in grams, rounded to a whole gram (B3).
+export function proteinTargetG(weightKg, coef) {
+  return Math.round(weightKg * coef);
+}
+
+// Coefficient display follows the bodyweight unit (B3/B4): g/kg as configured,
+// or the g/lb equivalent (coef * KG_PER_LB, rounded to 0.01) in lb mode.
+export function proteinCoefDisplay(coef, bodyweightUnit) {
+  if (bodyweightUnit === "lb") {
+    const perLb = Math.round(coef * KG_PER_LB * 100) / 100;
+    return `${perLb} g/lb`;
+  }
+  return `${Math.round(coef * 100) / 100} g/kg`;
+}
+
+// Bodyweight-unit-aware display, rounded to 0.1 (B4): "74.8 kg" / "164.9 lb".
+export function bodyweightDisplay(kg, unit) {
+  if (unit === "lb") return `${kgToLb(kg)} lb`;
+  return `${round1(kg)} kg`;
+}
+
+// Fat-free (lean) mass in kg, or null when body fat percent is unknown (B5).
+export function leanMassKg(weightKg, bodyFatPct) {
+  if (bodyFatPct == null) return null;
+  return round1(weightKg * (1 - bodyFatPct / 100));
+}
+
+// Pace text (B1), e.g. "6'40\"/km"; null when either input is missing/zero.
+export function paceText(minutes, distanceKm) {
+  if (!minutes || !distanceKm) return null;
+  const perKm = minutes / distanceKm;
+  let mm = Math.floor(perKm);
+  let ss = Math.round((perKm - mm) * 60);
+  if (ss === 60) { mm += 1; ss = 0; }
+  return `${mm}'${String(ss).padStart(2, "0")}"/km`;
+}
+
+// Total cardio minutes logged in the given Monday-week (B6). Cardio sessions
+// only; mirrors weeklyBalance's weekKeyStr convention.
+export function weeklyCardioMinutes(sessions, weekKeyStr) {
+  let total = 0;
+  for (const session of sessions) {
+    if (session.kind !== "cardio" || !session.cardio) continue;
+    if (weekKey(session.date) !== weekKeyStr) continue;
+    const minutes = Number(session.cardio.minutes);
+    if (Number.isFinite(minutes)) total += minutes;
+  }
+  return total;
+}
