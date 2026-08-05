@@ -14,6 +14,7 @@ import {
   getSettings, saveSettings, getAll, put, del, newId, exportPack, importPack,
 } from "../store.js";
 import * as rules from "../rules.js";
+import * as onboarding from "../onboarding.js";
 
 export const titleKey = "tab.settings";
 export const subKey = "screen.settings.sub";
@@ -399,6 +400,22 @@ function programCard(state, ctx) {
     addRow("sessions", {
       title: t("settings.program.sessions"),
       editor: (box) => sessionsEditor(box, state, ctx, render),
+    });
+
+    // Rule-based course generator (C3/C4): same wizard as first-run
+    // onboarding, minus the import-or-fresh question. Generated exercises/
+    // programs are merged in (bulkPut by id) and never delete anything
+    // existing; a full ctx.remount() afterward refreshes this screen's
+    // program/library lists to show the new content.
+    addRow("generate", {
+      title: t("settings.program.generate"),
+      desc: t("settings.program.generate.desc"),
+      onTap: () => {
+        onboarding.mount(document.body, ctx, {
+          skipDataStep: true,
+          onDone: () => ctx.remount(),
+        });
+      },
     });
 
     addRow("library", {

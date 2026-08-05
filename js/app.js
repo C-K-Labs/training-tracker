@@ -7,12 +7,13 @@
 // ctx = { navigate, showToast, setTimer, setSub, remount }
 
 import { t, setLang } from "./i18n.js";
-import { openDB, getSettings, requestPersist } from "./store.js";
+import { openDB, getSettings, requestPersist, get } from "./store.js";
 import { seedIfEmpty } from "./seed.js";
 import * as today from "./ui/today.js";
 import * as log from "./ui/log.js";
 import * as stats from "./ui/stats.js";
 import * as settingsScreen from "./ui/settings.js";
+import * as onboarding from "./onboarding.js";
 
 const screens = { today, log, stats, settings: settingsScreen };
 let currentScreen = "today";
@@ -99,7 +100,18 @@ async function boot() {
   for (const tab of document.querySelectorAll(".tab")) {
     tab.addEventListener("click", () => navigate(tab.dataset.screen));
   }
-  await navigate("today");
+
+  // First-run onboarding (C4): only for users with no sessions AND no
+  // programs yet who haven't already been through (or skipped) it. A single
+  // kv get plus the session/program counts (onboarding.needsOnboarding)
+  // keeps this cheap for existing users, who fall straight through to
+  // navigate("today") as before.
+  const onboardedFlag = await get("kv", "onboarded");
+  if (await onboarding.needsOnboarding(onboardedFlag)) {
+    await onboarding.mount(document.body, ctx);
+  } else {
+    await navigate("today");
+  }
 
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
     navigator.serviceWorker.register("./sw.js").catch(() => { /* offline layer optional in dev */ });

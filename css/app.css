@@ -504,6 +504,53 @@ button.chip { cursor: pointer; }
 
 .bal-emphasis { font-size: 12px; color: var(--ink2); margin-top: 4px; }
 
+/* Onboarding wizard (C4): full-screen overlay, independent of the tab/
+   screen system (js/onboarding.js appends it straight to document.body). */
+.onboard-overlay {
+  position: fixed; inset: 0; z-index: 50;
+  background: var(--bg);
+  display: flex; flex-direction: column;
+  overflow-y: auto;
+}
+.onboard-inner {
+  width: 100%; max-width: 430px; margin: 0 auto; flex: 1;
+  display: flex; flex-direction: column; gap: 14px;
+  padding: max(20px, env(safe-area-inset-top)) 16px calc(20px + env(safe-area-inset-bottom));
+}
+.onboard-header h1 { margin: 0; font-size: 20px; font-weight: 800; letter-spacing: -0.01em; }
+.onboard-header p { margin: 4px 0 0; color: var(--ink2); font-size: 13px; }
+
+.wizard-dots { display: flex; justify-content: center; gap: 6px; }
+.wizard-dot { width: 7px; height: 7px; border-radius: 999px; background: var(--line); }
+.wizard-dot.on { width: 18px; background: var(--accent); }
+@media (prefers-reduced-motion: no-preference) {
+  .wizard-dot { transition: width 0.15s, background 0.15s; }
+}
+
+/* Choice cards (goal / experience / equipment steps): 1.5px border, accent
+   when selected, per the approved mockup. */
+.goalopt-list { display: flex; flex-direction: column; gap: 10px; }
+.goalopt {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+  width: 100%; text-align: left;
+  padding: 14px;
+  border: 1.5px solid var(--line); border-radius: 14px;
+  background: var(--surface); color: var(--ink);
+  cursor: pointer;
+}
+.goalopt strong { font-size: 15px; }
+.goalopt .d { font-size: 12px; color: var(--ink2); }
+.goalopt.sel { border-color: var(--accent); background: var(--accent-soft); }
+.goalopt.sel strong { color: var(--accent); }
+
+.onboard-session {
+  border: 1px solid var(--line); border-radius: 12px; padding: 12px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.onboard-session .name { font-weight: 700; }
+.onboard-session .meta { font-size: 12px; color: var(--ink2); }
+.onboard-notes { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--ink2); }
+
 /* Water cups (B2): filled state = accent fill, tap toggles by one cupMl. */
 .cup-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .cup {
