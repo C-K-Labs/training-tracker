@@ -1,7 +1,7 @@
 // Service worker: network-first with cache fallback. Fresh code wins when
 // online; the cached copy keeps the app working in a dead-zone gym.
 
-const CACHE = "training-tracker-v3";
+const CACHE = "training-tracker-v4";
 const PRECACHE = [
   "./",
   "./index.html",
@@ -36,7 +36,11 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   event.respondWith(
-    fetch(event.request)
+    // cache: "no-cache" forces conditional revalidation against the server,
+    // bypassing the HTTP cache's heuristic freshness (which otherwise serves
+    // stale modules for files whose mtime is old). Offline still falls back
+    // to the SW cache below.
+    fetch(event.request, { cache: "no-cache" })
       .then((response) => {
         if (response.ok && new URL(event.request.url).origin === location.origin) {
           const copy = response.clone();

@@ -324,12 +324,21 @@ function sanitizeBodyweight(b) {
   return { date: b.date, kg: num(b.kg), fasted: boolVal(b.fasted), bodyFatPct, muscleMassKg };
 }
 
+// Daily water record for backup round-trips: {date, ml}. Optional in packs
+// so packs exported by older versions keep importing unchanged.
+function sanitizeWater(w) {
+  if (!w || typeof w !== "object" || typeof w.date !== "string") return null;
+  const ml = num(w.ml);
+  if (ml < 0) return null;
+  return { date: w.date, ml };
+}
+
 export function validatePack(pack) {
   const errors = [];
   if (!pack || typeof pack !== "object") errors.push("not-an-object");
   else {
     if (pack.formatVersion !== PACK_FORMAT_VERSION) errors.push("bad-format-version");
-    for (const k of ["exercises", "programs", "sessions", "bodyweight"]) {
+    for (const k of ["exercises", "programs", "sessions", "bodyweight", "water"]) {
       if (pack[k] !== undefined && !Array.isArray(pack[k])) errors.push(`bad-${k}`);
     }
   }
@@ -344,28 +353,31 @@ export async function importPack(pack, mode = "merge") {
   const programs = (pack.programs || []).map(sanitizeProgram).filter(Boolean);
   const sessions = (pack.sessions || []).map(sanitizeSession).filter(Boolean);
   const bodyweight = (pack.bodyweight || []).map(sanitizeBodyweight).filter(Boolean);
+  const water = (pack.water || []).map(sanitizeWater).filter(Boolean);
 
   if (mode === "replace") {
     await clear("exercises");
     await clear("programs");
     await clear("sessions");
     await clear("bodyweight");
+    await clear("water");
   }
   await bulkPut("exercises", exercises);
   await bulkPut("programs", programs);
   await bulkPut("sessions", sessions);
   await bulkPut("bodyweight", bodyweight);
+  await bulkPut("water", water);
 
-  return { exercises: exercises.length, programs: programs.length, sessions: sessions.length, bodyweight: bodyweight.length };
+  return { exercises: exercises.length, programs: programs.length, sessions: sessions.length, bodyweight: bodyweight.length, water: water.length };
 }
 
 export async function exportPack() {
-  const [exercises, programs, sessions, bodyweight] = await Promise.all([
-    getAll("exercises"), getAll("programs"), getAll("sessions"), getAll("bodyweight"),
+  const [exercises, programs, sessions, bodyweight, water] = await Promise.all([
+    getAll("exercises"), getAll("programs"), getAll("sessions"), getAll("bodyweight"), getAll("water"),
   ]);
   return {
     formatVersion: PACK_FORMAT_VERSION,
     exportedAt: new Date().toISOString(),
-    exercises, programs, sessions, bodyweight,
+    exercises, programs, sessions, bodyweight, water,
   };
 }

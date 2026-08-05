@@ -178,6 +178,7 @@ export async function mount(root, ctx) {
 
   root.appendChild(inventoryCard(state, ctx));
   root.appendChild(programCard(state, ctx));
+  root.appendChild(nutritionCard(state, ctx));
   root.appendChild(dataCard(state, ctx));
   root.appendChild(displayCard(state, ctx));
 }
@@ -913,6 +914,105 @@ function displayCard(state, ctx) {
       title: t("settings.display.unit"),
       right: unitSeg,
       rerender: render,
+    });
+
+    // Bodyweight unit (B4): independent of the load display unit above.
+    // Governs bodyweight entry fields and the protein coefficient display.
+    const bwSeg = el("div", "seg");
+    for (const value of ["kg", "lb"]) {
+      const button = el(
+        "button",
+        value === (state.settings.bodyweightUnit || "kg") ? "sel" : null,
+        t(`today.weight.unit.${value}`),
+      );
+      button.addEventListener("click", async () => {
+        state.settings.bodyweightUnit = value;
+        await commitSettings(state, ctx);
+        await ctx.remount();
+      });
+      bwSeg.appendChild(button);
+    }
+    rowEl(list, open, "bwunit", {
+      title: t("settings.display.bwunit"),
+      desc: t("settings.display.bwunit.desc"),
+      right: bwSeg,
+      rerender: render,
+    });
+  }
+
+  render();
+  return card;
+}
+
+// -------------------------------------------------------------- nutrition
+
+// Protein coefficient and water guide (B2/B3). The coefficient is stored in
+// g per kg; the row's right side follows the bodyweight unit for display.
+function nutritionCard(state, ctx) {
+  const { card, list } = cardEl("settings.nutrition.title");
+  const open = { key: null };
+
+  function render() {
+    list.textContent = "";
+    const addRow = (key, opts) => rowEl(list, open, key, { ...opts, rerender: render });
+    const s = state.settings;
+
+    addRow("protein", {
+      title: t("settings.nutrition.protein"),
+      desc: t("settings.nutrition.protein.desc"),
+      right: rules.proteinCoefDisplay(s.proteinCoef ?? 1.6, s.bodyweightUnit || "kg"),
+      editor: (box) => {
+        const control = inputEl("number", s.proteinCoef ?? 1.6, { step: 0.1, min: 0.8, max: 3, inputmode: "decimal" });
+        box.appendChild(fieldEl(t("settings.nutrition.protein.field"), control));
+        box.appendChild(el("div", "hint", t("settings.nutrition.protein.hint")));
+        const save = el("button", "btn-primary", t("common.save"));
+        save.addEventListener("click", async () => {
+          const v = numValue(control, NaN);
+          if (!Number.isFinite(v) || v < 0.8 || v > 3) return;
+          s.proteinCoef = Math.round(v * 100) / 100;
+          await commitSettings(state, ctx);
+          render();
+        });
+        box.appendChild(save);
+      },
+    });
+
+    addRow("water", {
+      title: t("settings.nutrition.water"),
+      desc: t("settings.nutrition.water.desc"),
+      right: `${s.waterTargetMl ?? 2000} ml`,
+      editor: (box) => {
+        const control = inputEl("number", s.waterTargetMl ?? 2000, { step: 50, min: 500, max: 6000, inputmode: "numeric" });
+        box.appendChild(fieldEl(t("settings.nutrition.water.field"), control));
+        const save = el("button", "btn-primary", t("common.save"));
+        save.addEventListener("click", async () => {
+          const v = numValue(control, NaN);
+          if (!Number.isFinite(v) || v < 500 || v > 6000) return;
+          s.waterTargetMl = Math.round(v);
+          await commitSettings(state, ctx);
+          render();
+        });
+        box.appendChild(save);
+      },
+    });
+
+    addRow("cup", {
+      title: t("settings.nutrition.cup"),
+      desc: t("settings.nutrition.cup.desc"),
+      right: `${s.cupMl ?? 250} ml`,
+      editor: (box) => {
+        const control = inputEl("number", s.cupMl ?? 250, { step: 10, min: 50, max: 1000, inputmode: "numeric" });
+        box.appendChild(fieldEl(t("settings.nutrition.cup.field"), control));
+        const save = el("button", "btn-primary", t("common.save"));
+        save.addEventListener("click", async () => {
+          const v = numValue(control, NaN);
+          if (!Number.isFinite(v) || v < 50 || v > 1000) return;
+          s.cupMl = Math.round(v);
+          await commitSettings(state, ctx);
+          render();
+        });
+        box.appendChild(save);
+      },
     });
   }
 
