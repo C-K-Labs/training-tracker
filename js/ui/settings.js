@@ -12,6 +12,7 @@
 import { t, getLang, setLang, availableLangs } from "../i18n.js";
 import {
   getSettings, saveSettings, getAll, put, del, newId, exportPack, importPack,
+  importGuestPack, getGuests, deleteGuest,
 } from "../store.js";
 import * as rules from "../rules.js";
 import * as onboarding from "../onboarding.js";
@@ -172,10 +173,10 @@ async function commitSettings(state, ctx) {
 // ------------------------------------------------------------------ mount
 
 export async function mount(root, ctx) {
-  const [settings, exercises, programs] = await Promise.all([
-    getSettings(), getAll("exercises"), getAll("programs"),
+  const [settings, exercises, programs, sessions, bodyweight, guests] = await Promise.all([
+    getSettings(), getAll("exercises"), getAll("programs"), getAll("sessions"), getAll("bodyweight"), getGuests(),
   ]);
-  const state = { settings, exercises, programs };
+  const state = { settings, exercises, programs, sessions, bodyweight, guests };
 
   root.appendChild(inventoryCard(state, ctx));
   root.appendChild(programCard(state, ctx));
@@ -878,6 +879,12 @@ function dataCard(state, ctx) {
       editor: (box) => importEditor(box, ctx),
     });
 
+    addRow("profiles", {
+      title: t("settings.data.profiles.title"),
+      desc: t("settings.data.profiles.desc", { n: state.guests.length }),
+      editor: (box) => profilesEditor(box, state, ctx, render),
+    });
+
     const last = state.settings.lastBackupAt;
     rowEl(list, open, "export", {
       title: t("settings.data.export"),
@@ -908,23 +915,54 @@ function dataCard(state, ctx) {
   return card;
 }
 
+// Strips a file's extension for the default guest name, e.g.
+// "program-pack.json" -> "program-pack".
+function baseName(fileName) {
+  return fileName.replace(/\.[^./\\]+$/, "");
+}
+
 function importEditor(box, ctx) {
   const file = inputEl("file", null, { accept: "application/json,.json" });
   box.appendChild(fieldEl(t("settings.data.import"), file));
 
+  // Guest mode (D1): a third option alongside 전체 교체/병합. The pack is
+  // NEVER merged into my stores in this mode; it lands in a single kv guest
+  // record instead (store.importGuestPack), read-only and switchable from
+  // log/stats.
   let mode = "merge";
   const seg = el("div", "seg");
   const buttons = [];
-  for (const [value, key] of [["replace", "settings.data.import.replace"], ["merge", "settings.data.import.merge"]]) {
+
+  const nameControl = inputEl("text", "");
+  const nameField = fieldEl(t("settings.data.import.guest.name"), nameControl);
+  nameField.hidden = true;
+  let nameTouched = false;
+  nameControl.addEventListener("input", () => { nameTouched = true; });
+
+  file.addEventListener("change", () => {
+    if (nameTouched) return;
+    const chosen = file.files && file.files[0];
+    if (!chosen) return;
+    nameControl.value = baseName(chosen.name);
+  });
+
+  for (const [value, key] of [
+    ["replace", "settings.data.import.replace"],
+    ["merge", "settings.data.import.merge"],
+    ["guest", "settings.data.import.guest"],
+  ]) {
     const button = el("button", value === mode ? "sel" : null, t(key));
+    button.type = "button";
     button.addEventListener("click", () => {
       mode = value;
       for (const b of buttons) b.el.classList.toggle("sel", b.value === mode);
+      nameField.hidden = mode !== "guest";
     });
     buttons.push({ value, el: button });
     seg.appendChild(button);
   }
   box.appendChild(seg);
+  box.appendChild(nameField);
 
   const run = el("button", "btn-primary", t("common.confirm"));
   run.addEventListener("click", async () => {
@@ -934,10 +972,16 @@ function importEditor(box, ctx) {
     if (mode === "replace" && !confirm(t("settings.data.import.replace.confirm"))) return;
     try {
       const parsed = JSON.parse(await readFileText(chosen));
-      const counts = await importPack(parsed, mode);
-      ctx.showToast(t("settings.data.import.ok", {
-        e: counts.exercises, p: counts.programs, s: counts.sessions,
-      }));
+      if (mode === "guest") {
+        const name = nameControl.value.trim() || baseName(chosen.name);
+        await importGuestPack(parsed, name);
+        ctx.showToast(t("settings.data.import.guest.ok", { name }));
+      } else {
+        const counts = await importPack(parsed, mode);
+        ctx.showToast(t("settings.data.import.ok", {
+          e: counts.exercises, p: counts.programs, s: counts.sessions,
+        }));
+      }
       await ctx.remount();
     } catch {
       // Parse failure or a pack rejected by validatePack: nothing was written.
@@ -945,6 +989,48 @@ function importEditor(box, ctx) {
     }
   });
   box.appendChild(run);
+}
+
+// Profile list (D1): 내 기록 (my data, always present, read-write) plus each
+// guest (read-only snapshot, deletable). Deleting a guest that is currently
+// being viewed elsewhere is fine by design: log/stats re-fetch the guest
+// list on their own next mount and fall back to 내 기록 when the id is gone.
+function profilesEditor(box, state, ctx, render) {
+  const mineLine = flexBox();
+  mineLine.style.justifyContent = "space-between";
+  mineLine.appendChild(el("div", null, t("settings.data.profiles.mine")));
+  mineLine.appendChild(el("div", "hint", t("settings.data.profiles.counts", {
+    e: state.exercises.length, p: state.programs.length, s: state.sessions.length, b: state.bodyweight.length,
+  })));
+  box.appendChild(mineLine);
+
+  for (const g of state.guests) {
+    const line = flexBox();
+    line.style.justifyContent = "space-between";
+    const left = el("div");
+    left.appendChild(el("div", null, g.name));
+    const meta = el("div", "hint", [
+      t("settings.data.profiles.guest.imported", { date: isoDate(new Date(g.importedAt)) }),
+      t("settings.data.profiles.counts", {
+        e: g.counts.exercises, p: g.counts.programs, s: g.counts.sessions, b: g.counts.bodyweight,
+      }),
+    ].join(" · "));
+    left.appendChild(meta);
+    line.appendChild(left);
+
+    const remove = el("button", "link", t("common.delete"));
+    remove.addEventListener("click", async () => {
+      if (!confirm(t("settings.data.profiles.delete.confirm", { name: g.name }))) return;
+      await deleteGuest(g.id);
+      state.guests = await getGuests();
+      ctx.showToast(t("common.done"));
+      render();
+    });
+    line.appendChild(remove);
+    box.appendChild(line);
+  }
+
+  if (state.guests.length === 0) box.appendChild(el("div", "empty", t("common.none")));
 }
 
 // ---------------------------------------------------------------- display

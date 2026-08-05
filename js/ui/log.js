@@ -3,9 +3,17 @@
 //
 // User-entered text (exercise names, program names) is written with
 // textContent only; nothing from the database reaches innerHTML.
+//
+// Profile switcher (D1): when at least one guest profile exists (imported
+// read-only via settings' "게스트로 보기" mode), a chip row lets the user
+// swap this screen's data source between 내 기록 (my real stores) and a
+// guest's sanitized snapshot (js/store.js getGuestData). Guest data never
+// touches my stores; switching just re-renders this screen against a
+// different in-memory dataset. Mutating affordances (delete) are hidden
+// whenever a guest is active.
 
 import { t } from "../i18n.js";
-import { getAll, del, getSettings } from "../store.js";
+import { getAll, del, getSettings, getGuests, getGuestData } from "../store.js";
 import { workingSets, paceText, formatLoad } from "../rules.js";
 
 export const titleKey = "tab.log";
@@ -87,63 +95,16 @@ function buildItems(sessions, bodyweight) {
 }
 
 export async function mount(root, ctx) {
-  const [sessions, bodyweightRecords, exercises, programs, settings] = await Promise.all([
+  const [sessions, bodyweightRecords, exercises, programs, settings, guests] = await Promise.all([
     getAll("sessions"),
     getAll("bodyweight"),
     getAll("exercises"),
     getAll("programs"),
     getSettings(),
+    getGuests(),
   ]);
 
-  const exById = {};
-  for (const ex of exercises) exById[ex.id] = ex;
-  const items = buildItems(sessions, bodyweightRecords);
-
-  // Method chip (C1): best-effort lookup against the CURRENT program item
-  // for that exercise. Programs can change after a session was logged, so
-  // this is an approximation, not a historical record (the app doesn't
-  // snapshot method per-session).
-  function itemForLog(session, exerciseId) {
-    const program = programs.find((p) => p.id === session.programId);
-    return (program?.items || []).find((i) => i.exerciseId === exerciseId) || null;
-  }
-
-  let selected = "all";
-
-  const filterRow = el("div", "filter-row");
-  const buttons = new Map();
-  for (const kind of KINDS) {
-    const btn = el("button", "filter", t(`kind.${kind}`));
-    btn.type = "button";
-    if (kind === selected) btn.classList.add("sel");
-    btn.addEventListener("click", () => {
-      if (selected === kind) return;
-      selected = kind;
-      for (const [k, b] of buttons) b.classList.toggle("sel", k === selected);
-      renderList();
-    });
-    buttons.set(kind, btn);
-    filterRow.appendChild(btn);
-  }
-  root.appendChild(filterRow);
-
-  function confirmDelete(store, key) {
-    if (!confirm(t("log.delete.confirm"))) return;
-    del(store, key).then(() => {
-      ctx.showToast(t("common.done"));
-      ctx.remount();
-    });
-  }
-
-  function deleteLink(store, key) {
-    const btn = el("button", "link", t("common.delete"));
-    btn.type = "button";
-    btn.addEventListener("click", (event) => {
-      event.stopPropagation();
-      confirmDelete(store, key);
-    });
-    return btn;
-  }
+  const mine = { sessions, bodyweight: bodyweightRecords, exercises, programs, isGuest: false };
 
   function dateBox(dateISO) {
     const box = el("div", "date");
@@ -184,126 +145,241 @@ export async function mount(root, ctx) {
     })));
   }
 
-  function sessionDetail(session) {
-    const detail = el("div", "log-detail");
-    for (const entry of session.entries || []) {
-      const ex = exById[entry.exerciseId];
-      const item = itemForLog(session, entry.exerciseId);
-      const line = el("div", "dl");
-      const name = el("span", "n", ex ? ex.name : entry.exerciseId);
-      let nameText = ex ? ex.name : entry.exerciseId;
-      if (ex && ex.variant) nameText += ` (${ex.variant})`;
-      if (ex && ex.emphasis) nameText += ` · ${ex.emphasis}`;
-      name.textContent = nameText;
-      line.appendChild(name);
-      if (item?.method) line.appendChild(el("span", "chip method", t(`method.${item.method}`)));
+  // Profile switcher (D1): only rendered when at least one guest exists.
+  let activeGuestId = null; // null = 내 기록 (mine)
+  // Zero-size marker (never shown): .screen lays out its direct children in a
+  // flex column with a gap, so the dynamic content below is appended as
+  // SIBLINGS of this anchor directly in root, not inside a wrapper div (a
+  // wrapper would swallow the gap between filterRow and the first card).
+  const anchor = el("div");
+  anchor.style.display = "none";
 
-      const value = el("span", "v");
-      const sets = workingSets(entry.sets).filter((s) => !s.drop);
-      const load = commonLoad(sets);
-      const parts = [];
-      // A1/A3 gap closed: this used to always show the exercise's stored
-      // unit; now it follows the global display-unit setting like Today.
-      if (load != null) parts.push(formatLoad(load, ex?.unit === "kg" ? "kg" : "lb", settings.displayUnit || "both"));
-      parts.push(`${sets.length}×${repsLabel(entry.targetReps)}`);
-      value.appendChild(el("span", null, parts.join(" ")));
-      for (const s of sets) {
-        if (!s.effort) continue; // unrated set: no dot rather than a neutral one
-        value.appendChild(el("span", `dot ${s.effort}`));
-      }
-      line.appendChild(value);
-      detail.appendChild(line);
+  if (guests.length > 0) {
+    const profileRow = el("div", "filter-row");
+    const chipBtns = new Map();
 
-      // Drop sets (C1): shown individually, e.g. "드롭 25 lb x 6".
-      const dropSets = (entry.sets || []).filter((s) => s.drop);
-      for (const d of dropSets) {
-        const dLine = el("div", "dl drop");
-        dLine.appendChild(el("span", "n", t("common.drop")));
-        const dValue = el("span", "v");
-        const w = formatLoad(d.weight, ex?.unit === "kg" ? "kg" : "lb", settings.displayUnit || "both");
-        dValue.appendChild(el("span", null, `${w} × ${d.reps}`));
-        dLine.appendChild(dValue);
-        detail.appendChild(dLine);
-      }
+    const mineBtn = el("button", "filter sel", t("profile.mine"));
+    mineBtn.type = "button";
+    profileRow.appendChild(mineBtn);
+    chipBtns.set(null, mineBtn);
+
+    for (const g of guests) {
+      const btn = el("button", "filter", t("profile.guest.readonly", { name: g.name }));
+      btn.type = "button";
+      profileRow.appendChild(btn);
+      chipBtns.set(g.id, btn);
     }
-    detail.appendChild(deleteLink("sessions", session.id));
-    return detail;
+
+    const roBadge = el("span", "chip accent", t("profile.readonly.badge"));
+    roBadge.hidden = true;
+    profileRow.appendChild(roBadge);
+    root.appendChild(profileRow);
+
+    async function guestDataset(id) {
+      const data = await getGuestData(id);
+      // Deleted meanwhile (e.g. from settings in another tab): fall back to mine.
+      if (!data) return mine;
+      return {
+        sessions: data.sessions, bodyweight: data.bodyweight,
+        exercises: data.exercises, programs: data.programs, isGuest: true,
+      };
+    }
+
+    async function switchProfile(id) {
+      if (activeGuestId === id) return;
+      activeGuestId = id;
+      for (const [k, b] of chipBtns) b.classList.toggle("sel", k === id);
+      roBadge.hidden = id === null;
+      const data = id === null ? mine : await guestDataset(id);
+      renderScreen(data);
+    }
+
+    mineBtn.addEventListener("click", () => switchProfile(null));
+    for (const g of guests) {
+      chipBtns.get(g.id).addEventListener("click", () => switchProfile(g.id));
+    }
   }
 
-  function sessionCard(item) {
-    const session = item.session;
-    const card = el("div", "card");
-    const row = el("div", "log-row");
-    row.appendChild(dateBox(item.date));
+  root.appendChild(anchor);
 
-    const body = el("div", "body");
-    body.appendChild(el("div", "t", session.programName || t(`kind.${session.kind}`)));
-    sessionMeta(body, session);
-    row.appendChild(body);
+  let selectedKind = "all";
 
-    if (session.kind === "weights" && session.recovery) {
-      row.appendChild(el("span", "chip accent", t("log.recovery")));
+  function renderScreen(data) {
+    while (anchor.nextSibling) anchor.nextSibling.remove();
+
+    const exById = {};
+    for (const ex of data.exercises) exById[ex.id] = ex;
+    const items = buildItems(data.sessions, data.bodyweight);
+
+    // Method chip (C1): best-effort lookup against the CURRENT program item
+    // for that exercise. Programs can change after a session was logged, so
+    // this is an approximation, not a historical record (the app doesn't
+    // snapshot method per-session).
+    function itemForLog(session, exerciseId) {
+      const program = data.programs.find((p) => p.id === session.programId);
+      return (program?.items || []).find((i) => i.exerciseId === exerciseId) || null;
     }
-    card.appendChild(row);
 
-    if (session.kind === "weights" || session.kind === "calisthenics") {
+    const filterRow = el("div", "filter-row");
+    const buttons = new Map();
+    for (const kind of KINDS) {
+      const btn = el("button", "filter", t(`kind.${kind}`));
+      btn.type = "button";
+      if (kind === selectedKind) btn.classList.add("sel");
+      btn.addEventListener("click", () => {
+        if (selectedKind === kind) return;
+        selectedKind = kind;
+        for (const [k, b] of buttons) b.classList.toggle("sel", k === selectedKind);
+        renderList();
+      });
+      buttons.set(kind, btn);
+      filterRow.appendChild(btn);
+    }
+    root.appendChild(filterRow);
+
+    function confirmDelete(store, key) {
+      if (!confirm(t("log.delete.confirm"))) return;
+      del(store, key).then(() => {
+        ctx.showToast(t("common.done"));
+        ctx.remount();
+      });
+    }
+
+    // Guests are read-only (D1): no delete affordance is ever rendered for
+    // guest data, so this is only called when data.isGuest is false.
+    function deleteLink(store, key) {
+      const btn = el("button", "link", t("common.delete"));
+      btn.type = "button";
+      btn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        confirmDelete(store, key);
+      });
+      return btn;
+    }
+
+    function sessionDetail(session) {
+      const detail = el("div", "log-detail");
+      for (const entry of session.entries || []) {
+        const ex = exById[entry.exerciseId];
+        const item = itemForLog(session, entry.exerciseId);
+        const line = el("div", "dl");
+        const name = el("span", "n", ex ? ex.name : entry.exerciseId);
+        let nameText = ex ? ex.name : entry.exerciseId;
+        if (ex && ex.variant) nameText += ` (${ex.variant})`;
+        if (ex && ex.emphasis) nameText += ` · ${ex.emphasis}`;
+        name.textContent = nameText;
+        line.appendChild(name);
+        if (item?.method) line.appendChild(el("span", "chip method", t(`method.${item.method}`)));
+
+        const value = el("span", "v");
+        const sets = workingSets(entry.sets).filter((s) => !s.drop);
+        const load = commonLoad(sets);
+        const parts = [];
+        // A1/A3 gap closed: this used to always show the exercise's stored
+        // unit; now it follows the global display-unit setting like Today.
+        if (load != null) parts.push(formatLoad(load, ex?.unit === "kg" ? "kg" : "lb", settings.displayUnit || "both"));
+        parts.push(`${sets.length}×${repsLabel(entry.targetReps)}`);
+        value.appendChild(el("span", null, parts.join(" ")));
+        for (const s of sets) {
+          if (!s.effort) continue; // unrated set: no dot rather than a neutral one
+          value.appendChild(el("span", `dot ${s.effort}`));
+        }
+        line.appendChild(value);
+        detail.appendChild(line);
+
+        // Drop sets (C1): shown individually, e.g. "드롭 25 lb x 6".
+        const dropSets = (entry.sets || []).filter((s) => s.drop);
+        for (const d of dropSets) {
+          const dLine = el("div", "dl drop");
+          dLine.appendChild(el("span", "n", t("common.drop")));
+          const dValue = el("span", "v");
+          const w = formatLoad(d.weight, ex?.unit === "kg" ? "kg" : "lb", settings.displayUnit || "both");
+          dValue.appendChild(el("span", null, `${w} × ${d.reps}`));
+          dLine.appendChild(dValue);
+          detail.appendChild(dLine);
+        }
+      }
+      if (!data.isGuest) detail.appendChild(deleteLink("sessions", session.id));
+      return detail;
+    }
+
+    function sessionCard(item) {
+      const session = item.session;
+      const card = el("div", "card");
+      const row = el("div", "log-row");
+      row.appendChild(dateBox(item.date));
+
+      const body = el("div", "body");
+      body.appendChild(el("div", "t", session.programName || t(`kind.${session.kind}`)));
+      sessionMeta(body, session);
+      row.appendChild(body);
+
+      if (session.kind === "weights" && session.recovery) {
+        row.appendChild(el("span", "chip accent", t("log.recovery")));
+      }
+      card.appendChild(row);
+
+      if (session.kind === "weights" || session.kind === "calisthenics") {
+        let detail = null;
+        card.addEventListener("click", () => {
+          if (!detail) {
+            detail = sessionDetail(session);
+            card.appendChild(detail);
+            return;
+          }
+          detail.hidden = !detail.hidden;
+        });
+      }
+      return card;
+    }
+
+    function bodyweightCard(item) {
+      const card = el("div", "card");
+      const row = el("div", "log-row");
+      row.appendChild(dateBox(item.date));
+
+      const body = el("div", "body");
+      body.appendChild(el("div", "t", t("kind.bodyweight")));
+      body.appendChild(el("div", "m", t("log.bw.summary", { kg: item.record.kg })));
+      row.appendChild(body);
+      card.appendChild(row);
+
       let detail = null;
       card.addEventListener("click", () => {
         if (!detail) {
-          detail = sessionDetail(session);
+          detail = el("div", "log-detail");
+          if (!data.isGuest) detail.appendChild(deleteLink("bodyweight", item.record.date));
           card.appendChild(detail);
           return;
         }
         detail.hidden = !detail.hidden;
       });
+      return card;
     }
-    return card;
-  }
 
-  function bodyweightCard(item) {
-    const card = el("div", "card");
-    const row = el("div", "log-row");
-    row.appendChild(dateBox(item.date));
+    function renderList() {
+      while (filterRow.nextSibling) filterRow.nextSibling.remove();
+      const visible = selectedKind === "all" ? items : items.filter((i) => i.kind === selectedKind);
 
-    const body = el("div", "body");
-    body.appendChild(el("div", "t", t("kind.bodyweight")));
-    body.appendChild(el("div", "m", t("log.bw.summary", { kg: item.record.kg })));
-    row.appendChild(body);
-    card.appendChild(row);
-
-    let detail = null;
-    card.addEventListener("click", () => {
-      if (!detail) {
-        detail = el("div", "log-detail");
-        detail.appendChild(deleteLink("bodyweight", item.record.date));
-        card.appendChild(detail);
+      if (visible.length === 0) {
+        const card = el("div", "card");
+        card.appendChild(el("div", "empty", t("log.empty")));
+        root.appendChild(card);
         return;
       }
-      detail.hidden = !detail.hidden;
-    });
-    return card;
-  }
 
-  function renderList() {
-    while (filterRow.nextSibling) filterRow.nextSibling.remove();
-    const visible = selected === "all" ? items : items.filter((i) => i.kind === selected);
-
-    if (visible.length === 0) {
-      const card = el("div", "card");
-      card.appendChild(el("div", "empty", t("log.empty")));
-      root.appendChild(card);
-      return;
-    }
-
-    let month = null;
-    for (const item of visible) {
-      if (monthKey(item.date) !== month) {
-        month = monthKey(item.date);
-        root.appendChild(el("div", "month-label", monthLabel(item.date)));
+      let month = null;
+      for (const item of visible) {
+        if (monthKey(item.date) !== month) {
+          month = monthKey(item.date);
+          root.appendChild(el("div", "month-label", monthLabel(item.date)));
+        }
+        root.appendChild(item.kind === "bodyweight" ? bodyweightCard(item) : sessionCard(item));
       }
-      root.appendChild(item.kind === "bodyweight" ? bodyweightCard(item) : sessionCard(item));
     }
+
+    renderList();
   }
 
-  renderList();
+  renderScreen(mine);
 }

@@ -5,7 +5,7 @@
 // with textContent; nothing user-supplied is ever interpolated into HTML.
 
 import { t } from "../i18n.js";
-import { getAll, getSettings } from "../store.js";
+import { getAll, getSettings, getGuests, getGuestData } from "../store.js";
 import {
   weekKey, weeklyBalance, emphasisBreakdown, overshootWarning, workingSets,
   kgToLb, proteinTargetG, proteinCoefDisplay, leanMassKg, weeklyCardioMinutes,
@@ -619,32 +619,98 @@ function balanceCard(sessions, exercisesById) {
 
 // ------------------------------------------------------------------- mount
 
+// Profile switcher (D1): when at least one guest profile exists, a chip row
+// lets the user recompute every tile/chart/card below against a guest's
+// read-only snapshot instead of my real stores (js/store.js getGuestData).
+// Guest data never mixes into my aggregates; switching profiles just swaps
+// which (sessions, bodyweight, exercises) arrays this render function reads.
 export async function mount(root, ctx) {
-  const [sessions, bodyweight, exercises, settings] = await Promise.all([
+  const [sessions, bodyweight, exercises, settings, guests] = await Promise.all([
     getAll("sessions"),
     getAll("bodyweight"),
     getAll("exercises"),
     getSettings(),
+    getGuests(),
   ]);
 
-  const exercisesById = {};
-  for (const ex of exercises) exercisesById[ex.id] = ex;
+  const mine = { sessions, bodyweight, exercises, isGuest: false };
+  let activeGuestId = null; // null = 내 기록 (mine)
 
-  const tiles = el("div", "tile-row");
-  tiles.appendChild(bodyweightTile(bodyweight, settings));
-  tiles.appendChild(bodyFatTile(bodyweight));
-  tiles.appendChild(muscleTile(bodyweight, settings));
-  root.appendChild(tiles);
+  // Zero-size marker (never shown): .screen lays out its direct children in a
+  // flex column with a gap, so the tiles/cards below are appended as
+  // SIBLINGS of this anchor directly in root, not inside a wrapper div (a
+  // wrapper would swallow the gap between each card).
+  const anchor = el("div");
+  anchor.style.display = "none";
 
-  const tiles2 = el("div", "tile-row");
-  tiles2.appendChild(weekTile(sessions));
-  root.appendChild(tiles2);
+  if (guests.length > 0) {
+    const profileRow = el("div", "filter-row");
+    const chipBtns = new Map();
 
-  root.appendChild(bodyCompTrendCard(bodyweight, settings));
-  const analysis = analysisCard(bodyweight, settings);
-  if (analysis) root.appendChild(analysis);
+    const mineBtn = el("button", "filter sel", t("profile.mine"));
+    mineBtn.type = "button";
+    profileRow.appendChild(mineBtn);
+    chipBtns.set(null, mineBtn);
 
-  root.appendChild(trendCard(sessions, exercisesById));
-  root.appendChild(cardioBandCard(sessions));
-  root.appendChild(balanceCard(sessions, exercisesById));
+    for (const g of guests) {
+      const btn = el("button", "filter", t("profile.guest.readonly", { name: g.name }));
+      btn.type = "button";
+      profileRow.appendChild(btn);
+      chipBtns.set(g.id, btn);
+    }
+
+    const roBadge = el("span", "chip accent", t("profile.readonly.badge"));
+    roBadge.hidden = true;
+    profileRow.appendChild(roBadge);
+    root.appendChild(profileRow);
+
+    async function guestDataset(id) {
+      const data = await getGuestData(id);
+      // Deleted meanwhile (e.g. from settings in another tab): fall back to mine.
+      if (!data) return mine;
+      return { sessions: data.sessions, bodyweight: data.bodyweight, exercises: data.exercises, isGuest: true };
+    }
+
+    async function switchProfile(id) {
+      if (activeGuestId === id) return;
+      activeGuestId = id;
+      for (const [k, b] of chipBtns) b.classList.toggle("sel", k === id);
+      roBadge.hidden = id === null;
+      const data = id === null ? mine : await guestDataset(id);
+      renderScreen(data);
+    }
+
+    mineBtn.addEventListener("click", () => switchProfile(null));
+    for (const g of guests) {
+      chipBtns.get(g.id).addEventListener("click", () => switchProfile(g.id));
+    }
+  }
+
+  root.appendChild(anchor);
+
+  function renderScreen(data) {
+    while (anchor.nextSibling) anchor.nextSibling.remove();
+    const exercisesById = {};
+    for (const ex of data.exercises) exercisesById[ex.id] = ex;
+
+    const tiles = el("div", "tile-row");
+    tiles.appendChild(bodyweightTile(data.bodyweight, settings));
+    tiles.appendChild(bodyFatTile(data.bodyweight));
+    tiles.appendChild(muscleTile(data.bodyweight, settings));
+    root.appendChild(tiles);
+
+    const tiles2 = el("div", "tile-row");
+    tiles2.appendChild(weekTile(data.sessions));
+    root.appendChild(tiles2);
+
+    root.appendChild(bodyCompTrendCard(data.bodyweight, settings));
+    const analysis = analysisCard(data.bodyweight, settings);
+    if (analysis) root.appendChild(analysis);
+
+    root.appendChild(trendCard(data.sessions, exercisesById));
+    root.appendChild(cardioBandCard(data.sessions));
+    root.appendChild(balanceCard(data.sessions, exercisesById));
+  }
+
+  renderScreen(mine);
 }

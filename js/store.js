@@ -363,14 +363,23 @@ export function validatePack(pack) {
   return { ok: errors.length === 0, errors };
 }
 
-export async function importPack(pack, mode = "merge") {
-  const check = validatePack(pack);
-  if (!check.ok) throw new Error("invalid-pack: " + check.errors.join(","));
-
+// Shared sanitize step (D1): both importPack (my data) and importGuestPack
+// (read-only guest snapshot) whitelist-copy the same four arrays through the
+// same per-record sanitizers, so a guest pack is held to identical scrutiny
+// as untrusted input entering my own stores.
+function sanitizePack(pack) {
   const exercises = (pack.exercises || []).map(sanitizeExercise).filter(Boolean);
   const programs = (pack.programs || []).map(sanitizeProgram).filter(Boolean);
   const sessions = (pack.sessions || []).map(sanitizeSession).filter(Boolean);
   const bodyweight = (pack.bodyweight || []).map(sanitizeBodyweight).filter(Boolean);
+  return { exercises, programs, sessions, bodyweight };
+}
+
+export async function importPack(pack, mode = "merge") {
+  const check = validatePack(pack);
+  if (!check.ok) throw new Error("invalid-pack: " + check.errors.join(","));
+
+  const { exercises, programs, sessions, bodyweight } = sanitizePack(pack);
   const water = (pack.water || []).map(sanitizeWater).filter(Boolean);
 
   if (mode === "replace") {
@@ -387,6 +396,62 @@ export async function importPack(pack, mode = "merge") {
   await bulkPut("water", water);
 
   return { exercises: exercises.length, programs: programs.length, sessions: sessions.length, bodyweight: bodyweight.length, water: water.length };
+}
+
+// ------------------------------------------------------------ guest profiles
+//
+// Guests (D1) never touch my stores or acquire profileId fields on my data:
+// each guest lives entirely inside one kv record "guest:<id>" holding the
+// SAME sanitized shape as my data (exercises/programs/sessions/bodyweight),
+// so every existing aggregate (stats, suggestions, exports, today) stays
+// untouched by construction; they simply never read guest: kv records. The
+// registry ("guests" kv record) is a small index for the settings list and
+// the log/stats profile switchers.
+
+async function loadGuestRegistry() {
+  const reg = await get("kv", "guests");
+  return reg && Array.isArray(reg.list) ? reg : { key: "guests", list: [] };
+}
+
+export async function importGuestPack(pack, name) {
+  const check = validatePack(pack);
+  if (!check.ok) throw new Error("invalid-pack: " + check.errors.join(","));
+
+  const data = sanitizePack(pack);
+  const counts = {
+    exercises: data.exercises.length,
+    programs: data.programs.length,
+    sessions: data.sessions.length,
+    bodyweight: data.bodyweight.length,
+  };
+
+  const id = newId("guest");
+  const importedAt = new Date().toISOString();
+  const record = { key: `guest:${id}`, id, name: String(name || ""), importedAt, counts, data };
+  await put("kv", record);
+
+  const registry = await loadGuestRegistry();
+  registry.list = [...registry.list, { id, name: record.name, importedAt, counts }];
+  await put("kv", registry);
+
+  return counts;
+}
+
+export async function getGuests() {
+  const registry = await loadGuestRegistry();
+  return registry.list;
+}
+
+export async function getGuestData(id) {
+  const record = await get("kv", `guest:${id}`);
+  return record ? record.data : null;
+}
+
+export async function deleteGuest(id) {
+  await del("kv", `guest:${id}`);
+  const registry = await loadGuestRegistry();
+  registry.list = registry.list.filter((g) => g.id !== id);
+  await put("kv", registry);
 }
 
 export async function exportPack() {
