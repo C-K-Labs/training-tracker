@@ -168,3 +168,74 @@ export function overshootWarning(history, limitPct = 3, marginFactor = 2) {
   if (pct > limitPct * marginFactor) return { pct: Math.round(pct * 10) / 10 };
   return null;
 }
+
+// -------------------------------------------------- units / rest (v1.1, A)
+//
+// Storage values never change meaning: a load stays in its exercise's
+// storedUnit forever. These helpers only translate for FORMATTING (display)
+// and for reading typed input BACK into storedUnit before it is saved.
+
+export const KG_PER_LB = 0.45359237;
+
+// Display-oriented by default (rounded to 0.1, the mockup's precision).
+// Pass { round: false } to get the raw value, e.g. when round-tripping a
+// typed value back into storage (parseLoadInput rounds to 2 decimals itself).
+export function lbToKg(lb, { round = true } = {}) {
+  const kg = lb * KG_PER_LB;
+  return round ? Math.round(kg * 10) / 10 : kg;
+}
+
+export function kgToLb(kg, { round = true } = {}) {
+  const lb = kg / KG_PER_LB;
+  return round ? Math.round(lb * 10) / 10 : lb;
+}
+
+// Converts a value FROM fromUnit to the other of the two known units.
+function convertFromUnit(value, fromUnit, round = true) {
+  return fromUnit === "lb" ? lbToKg(value, { round }) : kgToLb(value, { round });
+}
+
+function formatNum(v) {
+  // Trim float noise (e.g. 40.800000000000004) without forcing decimals.
+  return String(Math.round(v * 100) / 100);
+}
+
+// storedUnit: "kg" | "lb" - the unit the value is actually persisted in.
+// displayUnit: "both" | "kg" | "lb" - the user's global display preference.
+//   "both"          -> stored value first, converted value in parentheses,
+//                       e.g. stored 90 lb -> "90 lb (40.8 kg)".
+//   "kg" | "lb"      -> only that unit; converts when it differs from
+//                       storedUnit, and shows the stored value plain (no
+//                       parentheses, no duplicate) when it already matches.
+export function formatLoad(value, storedUnit, displayUnit) {
+  const su = storedUnit === "kg" ? "kg" : "lb";
+
+  if (displayUnit === "kg" || displayUnit === "lb") {
+    if (displayUnit === su) return `${formatNum(value)} ${su}`;
+    return `${formatNum(convertFromUnit(value, su))} ${displayUnit}`;
+  }
+
+  // "both" (or any unrecognized value falls back to both, the safest default)
+  const otherUnit = su === "kg" ? "lb" : "kg";
+  const converted = convertFromUnit(value, su);
+  return `${formatNum(value)} ${su} (${formatNum(converted)} ${otherUnit})`;
+}
+
+// Reads text typed in the ACTIVE display unit (or storedUnit itself when
+// displayUnit is "both", since "both" mode always edits in storedUnit) and
+// converts it back to storedUnit, rounded to 2 decimals for storage.
+export function parseLoadInput(text, storedUnit, displayUnit) {
+  const n = Number(text);
+  const value = Number.isFinite(n) ? n : 0;
+  const su = storedUnit === "kg" ? "kg" : "lb";
+  const inputUnit = displayUnit === "kg" || displayUnit === "lb" ? displayUnit : su;
+  const stored = inputUnit === su ? value : convertFromUnit(value, inputUnit, false);
+  return Math.round(stored * 100) / 100;
+}
+
+// Per-exercise rest override wins over the global default (A2).
+export function restSecondsFor(exerciseId, settings) {
+  const ov = settings?.restOverrides?.[exerciseId];
+  if (typeof ov === "number" && Number.isFinite(ov)) return ov;
+  return settings?.restDefaultSec ?? 90;
+}

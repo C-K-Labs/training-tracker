@@ -13,6 +13,7 @@ import { t, getLang, setLang, availableLangs } from "../i18n.js";
 import {
   getSettings, saveSettings, getAll, put, del, newId, exportPack, importPack,
 } from "../store.js";
+import * as rules from "../rules.js";
 
 export const titleKey = "tab.settings";
 export const subKey = "screen.settings.sub";
@@ -97,6 +98,11 @@ function isoDate(d) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
+function mmss(totalSec) {
+  const s = Math.max(0, Math.round(totalSec));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
 function exLabel(ex) {
   return ex.variant ? `${ex.name} (${ex.variant})` : ex.name;
 }
@@ -115,19 +121,6 @@ function readFileText(file) {
     reader.onerror = () => reject(reader.error || new Error("read-failed"));
     reader.readAsText(file);
   });
-}
-
-// "5, 10, 12.5" -> [5, 10, 12.5]; junk, negatives and duplicates drop out.
-function parseWeightList(raw) {
-  const seen = new Set();
-  for (const part of String(raw).split(",")) {
-    const trimmed = part.trim();
-    if (trimmed === "") continue;
-    const n = Number(trimmed);
-    if (!Number.isFinite(n) || n < 0) continue;
-    seen.add(n);
-  }
-  return [...seen].sort((a, b) => a - b);
 }
 
 function cardEl(key) {
@@ -207,17 +200,7 @@ function inventoryCard(state, ctx) {
         min: dumbbells.length ? dumbbells[0] : "-",
         max: dumbbells.length ? dumbbells[dumbbells.length - 1] : "-",
       }),
-      editor: (box) => {
-        const control = inputEl("text", dumbbells.join(", "), { inputmode: "decimal" });
-        box.appendChild(fieldEl(t("settings.inventory.dumbbell"), control));
-        const save = el("button", "btn-primary", t("common.save"));
-        save.addEventListener("click", async () => {
-          inv.dumbbells = parseWeightList(control.value);
-          await commitSettings(state, ctx);
-          render();
-        });
-        box.appendChild(save);
-      },
+      editor: (box) => dumbbellEditor(box, state, ctx, render),
     });
 
     addRow("plate", {
@@ -256,6 +239,24 @@ function inventoryCard(state, ctx) {
       },
     });
 
+    addRow("machine", {
+      title: t("settings.inventory.machine"),
+      desc: t("settings.inventory.machine.desc", { step: inv.machineStep }),
+      editor: (box) => {
+        const control = inputEl("number", inv.machineStep, { step: 0.5, min: 0.25 });
+        box.appendChild(fieldEl(t("settings.inventory.machine"), control));
+        const save = el("button", "btn-primary", t("common.save"));
+        save.addEventListener("click", async () => {
+          const v = numValue(control, NaN);
+          if (!Number.isFinite(v) || v < 0.25) return;
+          inv.machineStep = v;
+          await commitSettings(state, ctx);
+          render();
+        });
+        box.appendChild(save);
+      },
+    });
+
     const overrides = inv.overrides || {};
     addRow("overrides", {
       title: t("settings.inventory.overrides"),
@@ -266,6 +267,74 @@ function inventoryCard(state, ctx) {
 
   render();
   return card;
+}
+
+// Dumbbell inventory (A4): dumbbells (inv.dumbbells) is the ENABLED sorted
+// list that rules.inventorySteps actually consumes (back-compat preserved);
+// dumbbellPool is the full set of known/generated weights the chip list is
+// built from. A range generator fills the pool; tapping a chip toggles
+// membership in the enabled list; the manual-add input covers one-offs.
+function dumbbellEditor(box, state, ctx, render) {
+  const inv = state.settings.inventory;
+  const enabled = inv.dumbbells || [];
+  const pool = inv.dumbbellPool && inv.dumbbellPool.length ? inv.dumbbellPool : enabled;
+
+  const min = numberField(t("settings.inventory.range.min"), 5, { min: 0, step: 2.5 }, "1 1 70px");
+  const max = numberField(t("settings.inventory.range.max"), 50, { min: 0, step: 2.5 }, "1 1 70px");
+  const step = numberField(t("settings.inventory.range.step"), 5, { min: 0.5, step: 0.5 }, "1 1 70px");
+  const rangeRow = flexBox();
+  rangeRow.append(min.field, max.field, step.field);
+  box.appendChild(rangeRow);
+
+  const generate = el("button", "btn-secondary", t("settings.inventory.range.generate"));
+  generate.addEventListener("click", async () => {
+    const mn = numValue(min.control, NaN);
+    const mx = numValue(max.control, NaN);
+    const st = numValue(step.control, NaN);
+    if (![mn, mx, st].every(Number.isFinite) || st <= 0 || mx < mn) return;
+    const nextPool = new Set(pool);
+    for (let v = mn; v <= mx + 1e-9; v = +(v + st).toFixed(2)) nextPool.add(v);
+    inv.dumbbellPool = [...nextPool].sort((a, b) => a - b);
+    await commitSettings(state, ctx);
+    render();
+  });
+  box.appendChild(generate);
+
+  box.appendChild(el("div", "field", t("settings.inventory.dumbbell.owned")));
+  const enabledSet = new Set(enabled);
+  const chipList = el("div", "chip-list");
+  for (const w of pool) {
+    const chip = el("button", `chip-toggle${enabledSet.has(w) ? " on" : ""}`, String(w));
+    chip.type = "button";
+    chip.addEventListener("click", async () => {
+      const nextEnabled = new Set(inv.dumbbells || []);
+      if (nextEnabled.has(w)) nextEnabled.delete(w); else nextEnabled.add(w);
+      inv.dumbbells = [...nextEnabled].sort((a, b) => a - b);
+      await commitSettings(state, ctx);
+      render();
+    });
+    chipList.appendChild(chip);
+  }
+  box.appendChild(chipList);
+
+  const manual = inputEl("number", "", { step: 0.5, min: 0 });
+  const manualRow = flexBox();
+  manualRow.appendChild(manual);
+  const manualAdd = el("button", "btn-secondary", t("settings.inventory.manual.add"));
+  manualRow.appendChild(manualAdd);
+  box.appendChild(fieldEl(null, manualRow));
+  manualAdd.addEventListener("click", async () => {
+    const v = numValue(manual, NaN);
+    if (!Number.isFinite(v) || v < 0) return;
+    const nextPool = new Set(pool);
+    nextPool.add(v);
+    inv.dumbbellPool = [...nextPool].sort((a, b) => a - b);
+    const nextEnabled = new Set(inv.dumbbells || []);
+    nextEnabled.add(v); // a manually added weight is enabled by default
+    inv.dumbbells = [...nextEnabled].sort((a, b) => a - b);
+    await commitSettings(state, ctx);
+    render();
+  });
 }
 
 function overridesEditor(box, state, ctx, render) {
@@ -363,10 +432,89 @@ function programCard(state, ctx) {
         box.appendChild(save);
       },
     });
+
+    addRow("rest", {
+      title: t("settings.rest.title"),
+      desc: t("settings.rest.hint"),
+      right: mmss(state.settings.restDefaultSec ?? 90),
+      editor: (box) => restEditor(box, state, ctx, render),
+    });
   }
 
   render();
   return card;
+}
+
+// Rest timer defaults (A2): global default in seconds plus per-exercise
+// overrides (settings.restOverrides, exerciseId -> seconds). Consumed by
+// js/rules.js restSecondsFor, which prefers the override when present.
+function restEditor(box, state, ctx, render) {
+  const defaultSec = state.settings.restDefaultSec ?? 90;
+  const def = numberField(t("settings.rest.seconds"), defaultSec, { min: 10, step: 5 }, "1 1 140px");
+  box.appendChild(def.field);
+  box.appendChild(el("div", "hint", mmss(defaultSec)));
+  const save = el("button", "btn-primary", t("common.save"));
+  save.addEventListener("click", async () => {
+    const v = numValue(def.control, NaN);
+    if (!Number.isFinite(v) || v < 10) return;
+    state.settings.restDefaultSec = v;
+    await commitSettings(state, ctx);
+    render();
+  });
+  box.appendChild(save);
+
+  const overrides = state.settings.restOverrides || {};
+  const overridesWrap = el("div");
+  overridesWrap.style.marginTop = "10px";
+  overridesWrap.style.borderTop = "1px solid var(--line)";
+  overridesWrap.style.paddingTop = "8px";
+  overridesWrap.appendChild(el(
+    "div",
+    null,
+    `${t("settings.rest.overrides")} · ${t("settings.rest.overrides.desc", { n: Object.keys(overrides).length })}`,
+  ));
+
+  for (const [exerciseId, secs] of Object.entries(overrides)) {
+    const ex = state.exercises.find((e) => e.id === exerciseId);
+    const line = flexBox();
+    line.style.justifyContent = "space-between";
+    line.appendChild(el("div", null, `${ex ? exLabel(ex) : exerciseId} · ${mmss(secs)}`));
+    const remove = el("button", "link", t("common.delete"));
+    remove.addEventListener("click", async () => {
+      delete overrides[exerciseId];
+      state.settings.restOverrides = overrides;
+      await commitSettings(state, ctx);
+      render();
+    });
+    line.appendChild(remove);
+    overridesWrap.appendChild(line);
+  }
+
+  if (state.exercises.length === 0) {
+    overridesWrap.appendChild(el("div", "empty", t("common.none")));
+    box.appendChild(overridesWrap);
+    return;
+  }
+
+  const picker = selectEl(state.exercises.map((e) => ({ value: e.id, label: exLabel(e) })));
+  picker.style.flex = "1 1 140px";
+  const secs = inputEl("number", 90, { step: 5, min: 10 });
+  secs.style.flex = "1 1 90px";
+  const pickLine = flexBox();
+  pickLine.append(picker, secs);
+  overridesWrap.appendChild(fieldEl(t("settings.rest.seconds"), pickLine));
+
+  const add = el("button", "btn-secondary", t("common.add"));
+  add.addEventListener("click", async () => {
+    const v = numValue(secs, NaN);
+    if (!picker.value || !Number.isFinite(v) || v < 10) return;
+    overrides[picker.value] = v;
+    state.settings.restOverrides = overrides;
+    await commitSettings(state, ctx);
+    render();
+  });
+  overridesWrap.appendChild(add);
+  box.appendChild(overridesWrap);
 }
 
 async function saveProgram(program, ctx, rerender) {
@@ -439,8 +587,25 @@ function programBlock(program, state, ctx, render) {
   return block;
 }
 
+// Target-load field (A3): edits in the active display unit when it differs
+// from the exercise's storedUnit ("both" mode always edits in storedUnit,
+// per rules.parseLoadInput's contract), with a formatLoad hint underneath
+// showing the stored value (and its conversion) regardless of edit mode.
+function targetLoadField(item, exercise, settings) {
+  const storedUnit = exercise?.unit === "kg" ? "kg" : "lb";
+  const displayUnit = settings.displayUnit || "both";
+  const editValue = displayUnit === "both" || displayUnit === storedUnit
+    ? item.targetLoad
+    : (storedUnit === "kg" ? rules.kgToLb(item.targetLoad) : rules.lbToKg(item.targetLoad));
+  const { field, control } = numberField(t("settings.program.item.load"), editValue, { min: 0, step: 0.5 });
+  const hint = el("div", "hint", rules.formatLoad(item.targetLoad, storedUnit, displayUnit));
+  field.appendChild(hint);
+  return { field, control, hint, storedUnit, displayUnit };
+}
+
 function itemBlock(program, index, state, ctx, render) {
   const item = program.items[index];
+  const exercise = state.exercises.find((e) => e.id === item.exerciseId) || null;
   const wrap = el("div");
   wrap.style.display = "flex";
   wrap.style.flexDirection = "column";
@@ -451,14 +616,15 @@ function itemBlock(program, index, state, ctx, render) {
   const picker = selectEl(state.exercises.map((e) => ({ value: e.id, label: exLabel(e) })), item.exerciseId);
   picker.addEventListener("change", async () => {
     item.exerciseId = picker.value;
-    await saveProgram(program, ctx);
+    // Full rerender: the load field's unit basis depends on the exercise.
+    await saveProgram(program, ctx, render);
   });
   wrap.appendChild(fieldEl(null, picker));
 
   const nums = flexBox();
   const sets = numberField(t("common.sets"), item.sets, { min: 1, step: 1 });
   const reps = numberField(t("common.reps"), item.reps === "max" ? "" : item.reps, { min: 1, step: 1 });
-  const load = numberField(t("settings.program.item.load"), item.targetLoad, { min: 0, step: 0.5 });
+  const load = targetLoadField(item, exercise, state.settings);
   const warmup = numberField(t("common.warmup"), item.warmupSets, { min: 0, step: 1 });
   reps.control.disabled = item.reps === "max";
   nums.append(sets.field, reps.field, load.field, warmup.field);
@@ -473,7 +639,8 @@ function itemBlock(program, index, state, ctx, render) {
     await saveProgram(program, ctx);
   });
   load.control.addEventListener("change", async () => {
-    item.targetLoad = numValue(load.control, item.targetLoad);
+    item.targetLoad = rules.parseLoadInput(load.control.value, load.storedUnit, load.displayUnit);
+    load.hint.textContent = rules.formatLoad(item.targetLoad, load.storedUnit, load.displayUnit);
     await saveProgram(program, ctx);
   });
   warmup.control.addEventListener("change", async () => {
@@ -725,6 +892,26 @@ function displayCard(state, ctx) {
     rowEl(list, open, "theme", {
       title: t("settings.display.theme"),
       right: seg,
+      rerender: render,
+    });
+
+    // Display unit (A3): affects formatting only, never the stored value.
+    // Every card on this screen shows formatted loads, so a full remount
+    // keeps them in sync (matches the language row's own remount).
+    const unitSeg = el("div", "seg");
+    const unitLabels = { both: t("settings.display.unit.both"), kg: t("today.weight.unit.kg"), lb: t("today.weight.unit.lb") };
+    for (const value of ["both", "kg", "lb"]) {
+      const button = el("button", value === (state.settings.displayUnit || "both") ? "sel" : null, unitLabels[value]);
+      button.addEventListener("click", async () => {
+        state.settings.displayUnit = value;
+        await commitSettings(state, ctx);
+        await ctx.remount();
+      });
+      unitSeg.appendChild(button);
+    }
+    rowEl(list, open, "unit", {
+      title: t("settings.display.unit"),
+      right: unitSeg,
       rerender: render,
     });
   }

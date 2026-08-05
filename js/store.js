@@ -80,6 +80,9 @@ export const DEFAULT_SETTINGS = {
   key: "settings",
   inventory: {
     dumbbells: [5, 10, 15, 17.5, 20, 22.5, 25, 27.5, 30, 35, 40, 45, 50],
+    // Full known/generated pool; dumbbells above is the ENABLED subset.
+    // Defaults to a copy of dumbbells when absent (see getSettings below).
+    dumbbellPool: [],
     plateMin: 2.5,
     cableStep: 2.5,
     machineStep: 5,
@@ -87,6 +90,11 @@ export const DEFAULT_SETTINGS = {
   },
   language: "ko",
   theme: "system",
+  // Display unit for load values: stored values never change meaning, this
+  // only affects formatting (js/rules.js formatLoad / parseLoadInput).
+  displayUnit: "both",
+  restDefaultSec: 90,
+  restOverrides: {}, // exerciseId -> seconds
   recoveryRule: { gapDays: 14, factor: 0.83 },
   recovery: { active: false, startedAt: null },
   lastBackupAt: null,
@@ -94,12 +102,17 @@ export const DEFAULT_SETTINGS = {
 
 export async function getSettings() {
   const saved = await get("kv", "settings");
+  const inventory = { ...DEFAULT_SETTINGS.inventory, ...(saved?.inventory || {}) };
+  if (!Array.isArray(inventory.dumbbellPool) || inventory.dumbbellPool.length === 0) {
+    inventory.dumbbellPool = [...(inventory.dumbbells || [])].sort((a, b) => a - b);
+  }
   return {
     ...DEFAULT_SETTINGS,
     ...(saved || {}),
-    inventory: { ...DEFAULT_SETTINGS.inventory, ...(saved?.inventory || {}) },
+    inventory,
     recoveryRule: { ...DEFAULT_SETTINGS.recoveryRule, ...(saved?.recoveryRule || {}) },
     recovery: { ...DEFAULT_SETTINGS.recovery, ...(saved?.recovery || {}) },
+    restOverrides: { ...DEFAULT_SETTINGS.restOverrides, ...(saved?.restOverrides || {}) },
     key: "settings",
   };
 }

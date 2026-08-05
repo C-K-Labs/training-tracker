@@ -92,13 +92,26 @@ function checkboxField(labelText, checked) {
   return { wrap, input };
 }
 
-function unitLabel(exercise) {
-  return exercise?.unit === "kg" ? t("today.weight.unit.kg") : t("today.weight.unit.lb");
+function storedUnitOf(exercise) {
+  return exercise?.unit === "kg" ? "kg" : "lb";
 }
 
-function loadText(exercise, load) {
+function loadText(exercise, load, settings) {
   if (exercise?.equipment === "bodyweight") return t("common.bodyweight.load");
-  return `${fmtNum(load)} ${unitLabel(exercise)}`;
+  return rules.formatLoad(load, storedUnitOf(exercise), settings?.displayUnit || "both");
+}
+
+// Split rendering for the compact set-entry stepper: primary text is the
+// stored-unit value (matches what +/- actually steps through); the small
+// secondary line only appears in "both" mode, showing the converted unit.
+function stepperWeightDisplay(exercise, value, settings) {
+  const su = storedUnitOf(exercise);
+  const displayUnit = settings?.displayUnit || "both";
+  if (displayUnit === "kg" || displayUnit === "lb") {
+    return { main: rules.formatLoad(value, su, displayUnit), small: null };
+  }
+  const otherUnit = su === "kg" ? "lb" : "kg";
+  return { main: rules.formatLoad(value, su, su), small: rules.formatLoad(value, su, otherUnit) };
 }
 
 function repsText(reps) {
@@ -157,9 +170,9 @@ function suggestionFor({ session, sessions, entry, item, exercise, settings }) {
   });
 }
 
-function suggestionText(session, suggestion, exercise) {
+function suggestionText(session, suggestion, exercise, settings) {
   if (session.recovery) return t("today.suggest.recovery");
-  const load = loadText(exercise, suggestion.load);
+  const load = loadText(exercise, suggestion.load, settings);
   if (suggestion.action === "increase") return t("today.suggest.increase", { load });
   if (suggestion.action === "decrease") return t("today.suggest.decrease", { load });
   return t("today.suggest.hold");
@@ -537,11 +550,9 @@ function stepper(valueText, unitText, { disabled, onDown, onUp }) {
   return wrap;
 }
 
-function setLine(exercise, set, label) {
+function setLine(exercise, set, label, settings) {
   const line = el("div", "set-line");
-  const weight = exercise?.equipment === "bodyweight"
-    ? t("common.bodyweight.load")
-    : `${fmtNum(set.weight)} ${unitLabel(exercise)}`;
+  const weight = loadText(exercise, set.weight, settings);
   line.append(
     el("span", "set-no", label),
     el("span", null, t("today.set.record", { w: weight, r: num(set.reps) })),
@@ -584,6 +595,27 @@ function renderActive(root, ctx, data, session) {
     const warm = entry.sets.length - working;
     return { working, warm, complete: working >= item.sets };
   };
+
+  // Rest-bar label for the set that will be done next, right after the one
+  // just saved: same exercise's next set number, or the next exercise's
+  // first set once this one is complete.
+  function nextSetLabel(entry, item, exercise) {
+    const state = entryState(entry, item);
+    if (!state.complete) {
+      return t("rest.next", { name: exercise ? exercise.name : "", n: state.working + 1 });
+    }
+    const idx = session.entries.indexOf(entry);
+    for (let i = idx + 1; i < session.entries.length; i++) {
+      const nextEntry = session.entries[i];
+      const nextItem = itemFor(program, nextEntry.exerciseId);
+      const nextState = entryState(nextEntry, nextItem);
+      if (!nextState.complete) {
+        const nextEx = exercisesById[nextEntry.exerciseId] || null;
+        return t("rest.next", { name: nextEx ? nextEx.name : nextEntry.exerciseId, n: nextState.working + 1 });
+      }
+    }
+    return t("today.session.allDone");
+  }
 
   function renderCard() {
     card.replaceChildren();
@@ -630,7 +662,7 @@ function renderActive(root, ctx, data, session) {
       row.appendChild(el(
         "div",
         "meta",
-        `${item.sets}×${repsText(entry.targetReps)} · ${loadText(exercise, item.targetLoad)}`,
+        `${item.sets}×${repsText(entry.targetReps)} · ${loadText(exercise, item.targetLoad, settings)}`,
       ));
       list.appendChild(row);
 
@@ -638,7 +670,7 @@ function renderActive(root, ctx, data, session) {
         list.appendChild(renderSetBlock(entry, item, exercise));
       } else if (state.complete) {
         const suggestion = suggestionFor({ session, sessions, entry, item, exercise, settings });
-        list.appendChild(el("div", "hint", suggestionText(session, suggestion, exercise)));
+        list.appendChild(el("div", "hint", suggestionText(session, suggestion, exercise, settings)));
       }
     });
 
@@ -656,7 +688,7 @@ function renderActive(root, ctx, data, session) {
     let workingSeen = 0;
     for (const set of entry.sets) {
       const label = set.warmup ? t("common.warmup") : t("common.set.n", { n: ++workingSeen });
-      block.appendChild(setLine(exercise, set, label));
+      block.appendChild(setLine(exercise, set, label, settings));
     }
 
     const entryBox = el("div", "set-entry");
@@ -668,11 +700,14 @@ function renderActive(root, ctx, data, session) {
 
     const steps = stepsFor(exercise, settings);
     const bodyweight = exercise?.equipment === "bodyweight";
+    const weightDisplay = bodyweight
+      ? { main: t("common.bodyweight.load"), small: null }
+      : stepperWeightDisplay(exercise, draft.weight, settings);
     const stepperRow = el("div", "stepper-row");
     stepperRow.append(
       stepper(
-        bodyweight ? t("common.bodyweight.load") : fmtNum(draft.weight),
-        bodyweight ? null : unitLabel(exercise),
+        weightDisplay.main,
+        weightDisplay.small,
         {
           disabled: bodyweight,
           onDown: () => {
@@ -712,6 +747,9 @@ function renderActive(root, ctx, data, session) {
     doneBtn.disabled = !(isWarmup || draft.effort);
     doneBtn.addEventListener("click", async () => {
       doneBtn.disabled = true;
+      // AudioContext must be created/resumed synchronously inside this user
+      // gesture (before any await) or iOS will refuse to let it play later.
+      unlockRestAudio();
       entry.sets.push({
         weight: bodyweight ? 0 : num(draft.weight),
         reps: num(draft.reps),
@@ -719,6 +757,10 @@ function renderActive(root, ctx, data, session) {
         warmup: isWarmup,
       });
       draft.effort = null;
+      startRest(
+        rules.restSecondsFor(entry.exerciseId, settings),
+        nextSetLabel(entry, item, exercise),
+      );
       await put("sessions", session);
       renderCard();
     });
@@ -752,12 +794,211 @@ function renderActive(root, ctx, data, session) {
     if (programChanged) await put("programs", program);
     await put("sessions", session);
 
+    clearRest();
     ctx.setTimer(null);
     ctx.showToast(t("today.session.finished"));
     await ctx.remount();
   });
   root.appendChild(finish);
 }
+
+// --------------------------------------------------------- rest bar (A1/A2)
+//
+// Global and screen-independent: the container lives in index.html outside
+// #screen-root (which navigate() wipes on every tab switch), and the state
+// below is module-level so the countdown, ring, and alert keep running no
+// matter which tab is on screen. Timestamp-based (endsAt, not a tick count)
+// so it survives a screen-off/reload; localStorage is the resume source.
+
+const REST_STORAGE_KEY = "tt-rest";
+const REST_RING_R = 20;
+const REST_RING_CIRCUMFERENCE = 2 * Math.PI * REST_RING_R;
+
+let restState = { endsAt: null, totalMs: null, label: "" };
+let restTickHandle = null;
+let restAlertFired = false;
+let restAudioCtx = null;
+
+function loadRestState() {
+  try {
+    const raw = localStorage.getItem(REST_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.endsAt === "number") {
+      restState = { endsAt: parsed.endsAt, totalMs: parsed.totalMs || null, label: parsed.label || "" };
+      restAlertFired = parsed.endsAt <= Date.now();
+    }
+  } catch { /* corrupt or unavailable storage: start with no rest running */ }
+}
+
+function persistRestState() {
+  try {
+    if (restState.endsAt == null) localStorage.removeItem(REST_STORAGE_KEY);
+    else localStorage.setItem(REST_STORAGE_KEY, JSON.stringify(restState));
+  } catch { /* storage unavailable (private mode etc.): timer still runs in-memory */ }
+}
+
+function startRest(seconds, label) {
+  const ms = Math.max(0, num(seconds)) * 1000;
+  restState = { endsAt: Date.now() + ms, totalMs: ms, label };
+  restAlertFired = false;
+  persistRestState();
+  renderRestBar();
+}
+
+function clearRest() {
+  restState = { endsAt: null, totalMs: null, label: "" };
+  persistRestState();
+  renderRestBar();
+}
+
+// Must be called synchronously from within a user-gesture click handler
+// (before any await) so iOS unlocks playback; the context is then reused
+// silently later when the countdown actually reaches zero.
+function unlockRestAudio() {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    if (!restAudioCtx) restAudioCtx = new AC();
+    if (restAudioCtx.state === "suspended") restAudioCtx.resume().catch(() => { /* stays suspended; beep() no-ops */ });
+  } catch { /* no Web Audio support: vibration + visual only */ }
+}
+
+function beep() {
+  try {
+    const ctx = restAudioCtx;
+    if (!ctx) return;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = 880;
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.3, ctx.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.4);
+  } catch { /* blocked/unsupported: vibration + visual alert still fired */ }
+}
+
+function fireRestAlert() {
+  try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch { /* not supported */ }
+  beep();
+}
+
+function restBarRefs() {
+  const bar = document.getElementById("rest-bar");
+  if (!bar) return null;
+  if (bar.dataset.built === "1") {
+    return {
+      bar,
+      progress: bar.querySelector(".progress"),
+      time: bar.querySelector(".restbar-time"),
+      label: bar.querySelector(".restbar-label"),
+    };
+  }
+  bar.dataset.built = "1";
+  bar.textContent = "";
+  bar.setAttribute("role", "timer");
+  bar.setAttribute("aria-label", t("rest.title"));
+
+  const svgNS = "http://www.w3.org/2000/svg";
+  const ring = document.createElementNS(svgNS, "svg");
+  ring.setAttribute("class", "restbar-ring");
+  ring.setAttribute("viewBox", "0 0 46 46");
+  ring.setAttribute("width", "46");
+  ring.setAttribute("height", "46");
+  const track = document.createElementNS(svgNS, "circle");
+  track.setAttribute("class", "track");
+  track.setAttribute("cx", "23");
+  track.setAttribute("cy", "23");
+  track.setAttribute("r", String(REST_RING_R));
+  const progress = document.createElementNS(svgNS, "circle");
+  progress.setAttribute("class", "progress");
+  progress.setAttribute("cx", "23");
+  progress.setAttribute("cy", "23");
+  progress.setAttribute("r", String(REST_RING_R));
+  progress.style.strokeDasharray = String(REST_RING_CIRCUMFERENCE);
+  ring.append(track, progress);
+
+  const info = el("div", "restbar-info");
+  const time = el("div", "restbar-time", "");
+  const label = el("div", "restbar-label", "");
+  info.append(time, label);
+
+  const actions = el("div", "restbar-actions");
+  const add30 = el("button", "chip ghost", t("rest.add30"));
+  add30.type = "button";
+  add30.addEventListener("click", () => {
+    if (restState.endsAt == null) return;
+    restState.endsAt += 30000;
+    restState.totalMs = (restState.totalMs || 0) + 30000;
+    restAlertFired = false;
+    persistRestState();
+    tickRestBar();
+  });
+  const skip = el("button", "chip ghost", t("rest.skip"));
+  skip.type = "button";
+  skip.addEventListener("click", () => clearRest());
+  actions.append(add30, skip);
+
+  bar.append(ring, info, actions);
+  return { bar, progress, time, label };
+}
+
+function stopRestTicking() {
+  if (restTickHandle) { clearInterval(restTickHandle); restTickHandle = null; }
+}
+
+function tickRestBar() {
+  const refs = restBarRefs();
+  if (!refs || restState.endsAt == null) return;
+  const remainingMs = restState.endsAt - Date.now();
+  const total = Math.max(restState.totalMs || 1, 1);
+  const frac = Math.max(0, Math.min(1, remainingMs / total));
+  refs.progress.style.strokeDashoffset = String(REST_RING_CIRCUMFERENCE * (1 - frac));
+  refs.label.textContent = restState.label || "";
+
+  if (remainingMs <= 0) {
+    refs.time.textContent = "0:00";
+    if (!restAlertFired) {
+      restAlertFired = true;
+      fireRestAlert();
+    }
+    return;
+  }
+  const totalSec = Math.ceil(remainingMs / 1000);
+  const mm = Math.floor(totalSec / 60);
+  const ss = totalSec % 60;
+  refs.time.textContent = `${mm}:${String(ss).padStart(2, "0")}`;
+}
+
+function renderRestBar() {
+  const refs = restBarRefs();
+  if (!refs) return;
+  if (restState.endsAt == null) {
+    refs.bar.hidden = true;
+    // Give the screen's bottom padding back so the last card's buttons
+    // (e.g. session-finish) are reachable again.
+    document.documentElement.style.setProperty("--restbar-extra", "0px");
+    stopRestTicking();
+    return;
+  }
+  if (refs.bar.hidden) {
+    const tabbar = document.getElementById("tabbar");
+    refs.bar.style.bottom = tabbar ? `${tabbar.getBoundingClientRect().height}px` : "0px";
+  }
+  refs.bar.hidden = false;
+  // Reserve the bar's own height in the scrollable screen's bottom padding
+  // so it never overlaps/blocks content or buttons sitting above the tab bar.
+  document.documentElement.style.setProperty("--restbar-extra", `${refs.bar.getBoundingClientRect().height}px`);
+  tickRestBar();
+  if (!restTickHandle) restTickHandle = setInterval(tickRestBar, 250);
+}
+
+// Runs once, at module load (app boot), independent of which screen mounts.
+loadRestState();
+renderRestBar();
 
 // ------------------------------------------------------------------ mount
 

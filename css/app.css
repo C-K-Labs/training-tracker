@@ -114,7 +114,10 @@ body {
   padding: 2px 10px;
 }
 
-main { flex: 1; padding: 12px 12px 88px; display: flex; flex-direction: column; gap: 12px; }
+/* --restbar-extra is set by js/ui/today.js to the rest bar's rendered
+   height while it is showing, so fixed content above the tab bar never
+   overlaps/blocks the last card's buttons. */
+main { flex: 1; padding: 12px 12px calc(88px + var(--restbar-extra, 0px)); display: flex; flex-direction: column; gap: 12px; }
 .screen { display: flex; flex-direction: column; gap: 12px; }
 
 /* Cards */
@@ -405,3 +408,63 @@ button.chip { cursor: pointer; }
 @media (prefers-reduced-motion: no-preference) {
   .effort, .filter, .tab { transition: background 0.15s, color 0.15s, border-color 0.15s; }
 }
+
+/* Rest timer bar: sits fixed above the tab bar, shown while a countdown is
+   running (js/ui/today.js sets its bottom offset to the tab bar's height). */
+.restbar {
+  position: fixed;
+  left: 50%; transform: translateX(-50%);
+  width: 100%; max-width: 430px;
+  z-index: 9;
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px;
+  background: var(--surface);
+  border-top: 2px solid var(--accent);
+  box-shadow: var(--shadow);
+}
+/* The [hidden] attribute is same-specificity as the class's `display: flex`
+   above and loses the cascade-order tiebreak to it; this rule wins on
+   specificity so [hidden] actually hides the bar. */
+.restbar[hidden] { display: none; }
+.restbar-ring { flex: none; }
+.restbar-ring .track { fill: none; stroke: var(--surface2); stroke-width: 4; }
+.restbar-ring .progress {
+  fill: none; stroke: var(--accent); stroke-width: 4; stroke-linecap: round;
+  transform: rotate(-90deg); transform-origin: 50% 50%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .restbar-ring .progress { transition: stroke-dashoffset 0.2s linear; }
+}
+.restbar-info { flex: 1; min-width: 0; }
+.restbar-time {
+  font-size: 24px; font-weight: 800; line-height: 1.1;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.restbar-label {
+  font-size: 12px; color: var(--ink2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.restbar-actions { display: flex; gap: 6px; flex: none; }
+
+/* Ghost chip variant: tappable action inside a chip-styled button. */
+.chip.ghost {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink2);
+  cursor: pointer;
+}
+
+/* Inventory pool chips: on/off toggle state for enabled weights. */
+.chip-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip-toggle {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink2);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 13px; font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.chip-toggle.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }

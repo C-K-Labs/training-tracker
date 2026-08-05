@@ -6,6 +6,7 @@ import {
   gapDays, shouldSuggestRecovery, recoveryWeek,
   weekKey, weeklyBalance,
   monthlyProgressPct, overshootWarning,
+  KG_PER_LB, lbToKg, kgToLb, formatLoad, parseLoadInput, restSecondsFor,
 } from "../js/rules.js";
 
 const INVENTORY = {
@@ -159,4 +160,56 @@ test("monthlyProgressPct and overshoot warning", () => {
   assert.ok(overshootWarning(history));
   assert.equal(overshootWarning([{ date: "2026-06-20", load: 100 }, { date: "2026-06-26", load: 105 }]), null);
   assert.equal(monthlyProgressPct([]), null);
+});
+
+// ------------------------------------------------------- units / rest (A)
+
+test("KG_PER_LB round-trip: lbToKg and kgToLb undo each other at raw precision", () => {
+  assert.equal(KG_PER_LB, 0.45359237);
+  const rawKg = lbToKg(90, { round: false });
+  assert.ok(Math.abs(rawKg - 40.8233133) < 1e-6);
+  const backToLb = kgToLb(rawKg, { round: false });
+  assert.ok(Math.abs(backToLb - 90) < 1e-9);
+});
+
+test("lbToKg / kgToLb round to 0.1 for display by default", () => {
+  assert.equal(lbToKg(90), 40.8);
+  assert.equal(kgToLb(40.8), 89.9); // 40.8 kg is not exactly 90 lb; rounds down at 0.1
+});
+
+test("formatLoad: both mode shows original first, conversion in parentheses", () => {
+  assert.equal(formatLoad(90, "lb", "both"), "90 lb (40.8 kg)");
+  assert.equal(formatLoad(41, "kg", "both"), "41 kg (90.4 lb)");
+});
+
+test("formatLoad: single-unit mode converts when it differs from storedUnit", () => {
+  assert.equal(formatLoad(90, "lb", "kg"), "40.8 kg");
+  assert.equal(formatLoad(41, "kg", "lb"), "90.4 lb");
+});
+
+test("formatLoad: same-unit mode shows the plain value, no duplicate parentheses", () => {
+  assert.equal(formatLoad(90, "lb", "lb"), "90 lb");
+  assert.equal(formatLoad(41, "kg", "kg"), "41 kg");
+});
+
+test("parseLoadInput: both mode reads text in storedUnit directly", () => {
+  assert.equal(parseLoadInput("92.5", "lb", "both"), 92.5);
+});
+
+test("parseLoadInput: single-unit mode converts typed value back to storedUnit", () => {
+  // Typed 40.8 kg while stored in lb -> back to lb, rounded to 2 decimals.
+  assert.equal(parseLoadInput("40.8", "lb", "kg"), 89.95);
+  // Same unit: no conversion.
+  assert.equal(parseLoadInput("100", "kg", "kg"), 100);
+});
+
+test("parseLoadInput: invalid text falls back to 0", () => {
+  assert.equal(parseLoadInput("not-a-number", "lb", "both"), 0);
+});
+
+test("restSecondsFor: per-exercise override wins over the global default", () => {
+  const settings = { restDefaultSec: 90, restOverrides: { "smith-squat": 150 } };
+  assert.equal(restSecondsFor("smith-squat", settings), 150);
+  assert.equal(restSecondsFor("ohp", settings), 90);
+  assert.equal(restSecondsFor("ohp", { restOverrides: {} }), 90); // default fallback when restDefaultSec missing
 });
