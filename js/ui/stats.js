@@ -7,7 +7,7 @@
 import { t } from "../i18n.js";
 import { getAll, getSettings } from "../store.js";
 import {
-  weekKey, weeklyBalance, overshootWarning, workingSets,
+  weekKey, weeklyBalance, emphasisBreakdown, overshootWarning, workingSets,
   kgToLb, proteinTargetG, proteinCoefDisplay, leanMassKg, weeklyCardioMinutes,
 } from "../rules.js";
 
@@ -575,6 +575,7 @@ function balanceCard(sessions, exercisesById) {
   card.appendChild(el("h2", null, t("stats.balance.title")));
 
   const totals = weeklyBalance(sessions, exercisesById, weekKey(todayISO()));
+  const emphasis = emphasisBreakdown(sessions, exercisesById, weekKey(todayISO()));
   const parts = [...STANDARD_PARTS, ...Object.keys(totals).filter((p) => !STANDARD_PARTS.includes(p))];
   const axisMax = Math.max(BAND_AXIS_MIN, ...Object.values(totals));
 
@@ -599,6 +600,15 @@ function balanceCard(sessions, exercisesById) {
     track.appendChild(fill);
 
     item.appendChild(track);
+
+    // Emphasis breakdown (C2): "상부 6 · 하부 3" under the bar, only when
+    // this body part has at least one emphasis-labeled exercise this week.
+    const byEmphasis = emphasis[part];
+    if (byEmphasis && Object.keys(byEmphasis).length > 0) {
+      const line = Object.entries(byEmphasis).map(([label, n]) => `${label} ${n}`).join(" · ");
+      item.appendChild(el("div", "bal-emphasis", line));
+    }
+
     list.appendChild(item);
   }
 

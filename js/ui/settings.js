@@ -604,6 +604,69 @@ function targetLoadField(item, exercise, settings) {
   return { field, control, hint, storedUnit, displayUnit };
 }
 
+// Method picker (C1): segmented control with a one-line tradeoff description
+// under each option. Choosing "superset" pairs this item with the NEXT one
+// (sets method+supersetGroup on both); switching away unpairs both. The last
+// item in the list cannot become a superset (there is no next item to pair).
+const PROGRAM_METHODS = [null, "pyramid", "superset", "dropset"];
+
+function methodField(program, index, state, ctx, render) {
+  const item = program.items[index];
+  const isLast = index === program.items.length - 1;
+  const wrap = el("div", "field");
+  wrap.appendChild(el("label", null, t("settings.program.item.method")));
+
+  const seg = el("div", "seg");
+  for (const m of PROGRAM_METHODS) {
+    const key = m ? `method.${m}` : "method.normal";
+    const btn = el("button", (item.method || null) === m ? "sel" : null, t(key));
+    btn.type = "button";
+    if (m === "superset" && isLast) btn.disabled = true;
+    btn.addEventListener("click", async () => {
+      if (m === "superset" && isLast) return;
+      if (m === "superset") {
+        const partner = program.items[index + 1];
+        const group = (item.supersetGroup && partner.supersetGroup === item.supersetGroup)
+          ? item.supersetGroup
+          : newId("ss");
+        item.method = "superset";
+        item.supersetGroup = group;
+        partner.method = "superset";
+        partner.supersetGroup = group;
+      } else {
+        // Unpairing: clear the partner too so no dangling half survives.
+        if (item.method === "superset" && item.supersetGroup) {
+          const partner = program.items.find((it, i) => i !== index && it.supersetGroup === item.supersetGroup);
+          if (partner) {
+            partner.method = null;
+            delete partner.supersetGroup;
+          }
+        }
+        item.method = m;
+        delete item.supersetGroup;
+      }
+      await saveProgram(program, ctx, render);
+    });
+    seg.appendChild(btn);
+  }
+  wrap.appendChild(seg);
+
+  const descKey = item.method ? `method.${item.method}.desc` : "method.normal.desc";
+  wrap.appendChild(el("div", "hint", t(descKey)));
+  if (isLast) wrap.appendChild(el("div", "hint", t("settings.program.method.superset.lastHint")));
+  if (item.method === "superset" && item.supersetGroup) {
+    // The actual partner, not always index+1: this item may be either half
+    // of the pair (the one the user picked "superset" on, or its auto-paired
+    // neighbor), so match by shared supersetGroup instead of position.
+    const partner = program.items.find((it, i) => i !== index && it.supersetGroup === item.supersetGroup);
+    const partnerEx = partner ? state.exercises.find((e) => e.id === partner.exerciseId) : null;
+    wrap.appendChild(el("div", "hint", t("settings.program.method.pairedWith", {
+      name: partnerEx ? exLabel(partnerEx) : (partner ? partner.exerciseId : ""),
+    })));
+  }
+  return wrap;
+}
+
 function itemBlock(program, index, state, ctx, render) {
   const item = program.items[index];
   const exercise = state.exercises.find((e) => e.id === item.exerciseId) || null;
@@ -621,6 +684,8 @@ function itemBlock(program, index, state, ctx, render) {
     await saveProgram(program, ctx, render);
   });
   wrap.appendChild(fieldEl(null, picker));
+
+  wrap.appendChild(methodField(program, index, state, ctx, render));
 
   const nums = flexBox();
   const sets = numberField(t("common.sets"), item.sets, { min: 1, step: 1 });
@@ -701,7 +766,22 @@ function libraryEditor(box, state, ctx, render) {
     const line = flexBox();
     line.style.justifyContent = "space-between";
     const meta = `${t(`bodypart.${ex.bodyPart}`)}/${t(`equipment.${ex.equipment}`)}/${t(`today.weight.unit.${ex.unit}`)}`;
-    line.appendChild(el("div", null, `${exLabel(ex)} · ${meta}`));
+    const label = exLabel(ex) + (ex.emphasis ? ` · ${ex.emphasis}` : "");
+    line.appendChild(el("div", null, `${label} · ${meta}`));
+
+    // Emphasis (C2): inline edit on the existing exercise, kept separate
+    // from the add-new-exercise form below.
+    const emphasisInput = inputEl("text", ex.emphasis || "");
+    emphasisInput.placeholder = t("settings.program.library.emphasis");
+    emphasisInput.style.flex = "1 1 110px";
+    emphasisInput.addEventListener("change", async () => {
+      ex.emphasis = emphasisInput.value.trim();
+      await put("exercises", ex);
+      ctx.showToast(t("settings.saved"));
+      render();
+    });
+    line.appendChild(emphasisInput);
+
     const remove = el("button", "link", t("common.delete"));
     remove.addEventListener("click", async () => {
       if (!confirm(t("common.delete.confirm", { name: exLabel(ex) }))) return;
@@ -719,9 +799,12 @@ function libraryEditor(box, state, ctx, render) {
   name.style.flex = "1 1 120px";
   const variant = inputEl("text", "");
   variant.style.flex = "1 1 90px";
+  const emphasis = inputEl("text", "");
+  emphasis.style.flex = "1 1 90px";
+  emphasis.placeholder = t("settings.program.library.emphasis");
   const nameLine = flexBox();
-  nameLine.append(name, variant);
-  box.appendChild(fieldEl(`${t("settings.program.library.name")} · ${t("settings.program.library.variant")}`, nameLine));
+  nameLine.append(name, variant, emphasis);
+  box.appendChild(fieldEl(`${t("settings.program.library.name")} · ${t("settings.program.library.variant")} · ${t("settings.program.library.emphasis")}`, nameLine));
 
   const bodyPart = selectEl(BODY_PARTS.map((v) => ({ value: v, label: t(`bodypart.${v}`) })), "legs");
   const equipment = selectEl(EQUIPMENT.map((v) => ({ value: v, label: t(`equipment.${v}`) })), "dumbbell");
@@ -752,6 +835,7 @@ function libraryEditor(box, state, ctx, render) {
       unit: unit.value,
       loadConvention: loadConventionFor(equipment.value),
       variant: variant.value.trim(),
+      emphasis: emphasis.value.trim(),
       spinalLoad: spinal.checked,
     });
     state.exercises = await getAll("exercises");

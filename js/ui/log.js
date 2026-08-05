@@ -87,16 +87,26 @@ function buildItems(sessions, bodyweight) {
 }
 
 export async function mount(root, ctx) {
-  const [sessions, bodyweightRecords, exercises, settings] = await Promise.all([
+  const [sessions, bodyweightRecords, exercises, programs, settings] = await Promise.all([
     getAll("sessions"),
     getAll("bodyweight"),
     getAll("exercises"),
+    getAll("programs"),
     getSettings(),
   ]);
 
   const exById = {};
   for (const ex of exercises) exById[ex.id] = ex;
   const items = buildItems(sessions, bodyweightRecords);
+
+  // Method chip (C1): best-effort lookup against the CURRENT program item
+  // for that exercise. Programs can change after a session was logged, so
+  // this is an approximation, not a historical record (the app doesn't
+  // snapshot method per-session).
+  function itemForLog(session, exerciseId) {
+    const program = programs.find((p) => p.id === session.programId);
+    return (program?.items || []).find((i) => i.exerciseId === exerciseId) || null;
+  }
 
   let selected = "all";
 
@@ -178,13 +188,18 @@ export async function mount(root, ctx) {
     const detail = el("div", "log-detail");
     for (const entry of session.entries || []) {
       const ex = exById[entry.exerciseId];
+      const item = itemForLog(session, entry.exerciseId);
       const line = el("div", "dl");
       const name = el("span", "n", ex ? ex.name : entry.exerciseId);
-      if (ex && ex.variant) name.textContent = `${ex.name} (${ex.variant})`;
+      let nameText = ex ? ex.name : entry.exerciseId;
+      if (ex && ex.variant) nameText += ` (${ex.variant})`;
+      if (ex && ex.emphasis) nameText += ` · ${ex.emphasis}`;
+      name.textContent = nameText;
       line.appendChild(name);
+      if (item?.method) line.appendChild(el("span", "chip method", t(`method.${item.method}`)));
 
       const value = el("span", "v");
-      const sets = workingSets(entry.sets);
+      const sets = workingSets(entry.sets).filter((s) => !s.drop);
       const load = commonLoad(sets);
       const parts = [];
       // A1/A3 gap closed: this used to always show the exercise's stored
@@ -198,6 +213,18 @@ export async function mount(root, ctx) {
       }
       line.appendChild(value);
       detail.appendChild(line);
+
+      // Drop sets (C1): shown individually, e.g. "드롭 25 lb x 6".
+      const dropSets = (entry.sets || []).filter((s) => s.drop);
+      for (const d of dropSets) {
+        const dLine = el("div", "dl drop");
+        dLine.appendChild(el("span", "n", t("common.drop")));
+        const dValue = el("span", "v");
+        const w = formatLoad(d.weight, ex?.unit === "kg" ? "kg" : "lb", settings.displayUnit || "both");
+        dValue.appendChild(el("span", null, `${w} × ${d.reps}`));
+        dLine.appendChild(dValue);
+        detail.appendChild(dLine);
+      }
     }
     detail.appendChild(deleteLink("sessions", session.id));
     return detail;

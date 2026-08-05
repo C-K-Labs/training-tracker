@@ -77,8 +77,10 @@ export function stepDown(current, steps) {
 //   all working sets hit target reps AND all rated easy -> raise one step
 //   any missed reps -> hold; missed in the previous session too -> lower one step
 //   any hard -> hold; otherwise (normal present) -> hold
+// Drop sets (C1) are ignored for this verdict exactly like warm-up sets: they
+// are extra volume at a reduced load, not evidence about the working weight.
 export function nextLoad({ sets, targetReps, currentLoad, steps, prevMissedReps = false }) {
-  const ws = workingSets(sets);
+  const ws = workingSets(sets).filter((s) => !s.drop);
   if (ws.length === 0) return { action: "hold", load: currentLoad, reason: "no-working-sets" };
 
   const missed = !repsMet(ws, targetReps);
@@ -143,6 +145,67 @@ export function weeklyBalance(sessions, exercisesById, weekKeyStr) {
     }
   }
   return totals;
+}
+
+// Working sets per body part PER EMPHASIS LABEL, for the given Monday-week
+// (C2). Only exercises carrying an emphasis label are counted; drop sets
+// count as working sets here (workingSets already keeps them, only warm-ups
+// are excluded), matching weeklyBalance's own convention.
+export function emphasisBreakdown(sessions, exercisesById, weekKeyStr) {
+  const totals = {};
+  for (const session of sessions) {
+    if (session.kind !== "weights") continue;
+    if (weekKey(session.date) !== weekKeyStr) continue;
+    for (const entry of session.entries || []) {
+      const ex = exercisesById[entry.exerciseId];
+      if (!ex || !ex.emphasis) continue;
+      const count = workingSets(entry.sets).length;
+      if (count === 0) continue;
+      const byPart = totals[ex.bodyPart] || (totals[ex.bodyPart] = {});
+      byPart[ex.emphasis] = (byPart[ex.emphasis] || 0) + count;
+    }
+  }
+  return totals;
+}
+
+// ------------------------------------------------------ methods (v1.1, C1)
+//
+// Pyramid ladder: the LAST set is the target load/reps prescription itself
+// (snapped to an available step); each earlier set steps DOWN one inventory
+// step from the set after it and adds 2 reps, so the lift ramps up to a
+// "top set" at the target load. Clamps at the smallest available step (never
+// goes below it) and caps reps at 20. "max" rep targets have no numeric
+// ladder to build, so the whole plan falls back to null (render as normal).
+export function pyramidPlan(targetLoad, targetReps, sets, steps) {
+  if (targetReps === "max") return null;
+  if (!Number.isFinite(sets) || sets < 1) return null;
+  const snapped = snapDown(targetLoad, steps);
+  const topLoad = snapped == null ? (steps[0] ?? 0) : snapped;
+  const plan = new Array(sets);
+  plan[sets - 1] = { load: topLoad, reps: targetReps };
+  for (let i = sets - 2; i >= 0; i--) {
+    const prev = plan[i + 1];
+    const stepped = stepDown(prev.load, steps);
+    const load = stepped == null ? prev.load : stepped;
+    const reps = Math.min(20, prev.reps + 2);
+    plan[i] = { load, reps };
+  }
+  return plan;
+}
+
+// Drop-set chain (C1): the next `drops` distinct inventory steps below load,
+// descending. Shorter than `drops` near the bottom of the range; empty when
+// there is no lower step at all (bodyweight, or an inventory with one step).
+export function dropChain(load, steps, drops = 2) {
+  const chain = [];
+  let current = load;
+  for (let i = 0; i < drops; i++) {
+    const next = stepDown(current, steps);
+    if (next == null) break;
+    chain.push(next);
+    current = next;
+  }
+  return chain;
 }
 
 // Percent change between the latest load and the closest entry >= windowDays

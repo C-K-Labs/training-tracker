@@ -206,6 +206,9 @@ function sanitizeExercise(e) {
     loadConvention: str(e.loadConvention, "total"),
     variant: str(e.variant, ""),
     spinalLoad: boolVal(e.spinalLoad),
+    // Target-emphasis label (C2), e.g. "광배근 상부": feeds session display and
+    // the weekly body-part balance stats. Empty string means no emphasis set.
+    emphasis: str(e.emphasis, ""),
   };
 }
 
@@ -216,8 +219,14 @@ function sanitizeSet(s) {
     reps: num(s.reps),
     effort: ["hard", "normal", "easy"].includes(s.effort) ? s.effort : null,
     warmup: boolVal(s.warmup),
+    // Drop set (C1): an extra set performed immediately after the last
+    // working set at reduced load. Ignored by the nextLoad verdict, same as
+    // warm-ups, but counted as a working set everywhere else (log, balance).
+    drop: boolVal(s.drop),
   };
 }
+
+const PROGRAM_METHODS = ["pyramid", "superset", "dropset"];
 
 function sanitizeProgram(p) {
   if (!p || typeof p !== "object" || typeof p.id !== "string" || typeof p.name !== "string") return null;
@@ -227,13 +236,22 @@ function sanitizeProgram(p) {
     name: p.name,
     kind: kinds.includes(p.kind) ? p.kind : "weights",
     items: Array.isArray(p.items)
-      ? p.items.filter((i) => i && typeof i.exerciseId === "string").map((i) => ({
-          exerciseId: i.exerciseId,
-          sets: num(i.sets, 3),
-          reps: i.reps === "max" ? "max" : num(i.reps, 8),
-          targetLoad: num(i.targetLoad),
-          warmupSets: num(i.warmupSets),
-        }))
+      ? p.items.filter((i) => i && typeof i.exerciseId === "string").map((i) => {
+          const method = PROGRAM_METHODS.includes(i.method) ? i.method : null;
+          const out = {
+            exerciseId: i.exerciseId,
+            sets: num(i.sets, 3),
+            reps: i.reps === "max" ? "max" : num(i.reps, 8),
+            targetLoad: num(i.targetLoad),
+            warmupSets: num(i.warmupSets),
+            method,
+          };
+          // Superset pairing (C1): both paired items carry the same group id;
+          // kept only when the method is actually "superset" so a cleared
+          // pairing never leaves a stale group id behind.
+          if (method === "superset") out.supersetGroup = str(i.supersetGroup, "");
+          return out;
+        })
       : [],
   };
 }

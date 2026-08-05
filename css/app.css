@@ -469,6 +469,41 @@ button.chip { cursor: pointer; }
 }
 .chip-toggle.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 
+/* Program methods (C1): badge chip, superset visual grouping, drop strip. */
+.chip.method { color: var(--ink2); background: var(--surface2); border: 1px solid var(--line); }
+.emphasis { color: var(--accent); font-size: 12px; }
+
+.superset-group {
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  padding-left: 8px;
+  margin: 2px 0 8px;
+}
+.superset-group .ex-row { border-bottom: 1px dashed var(--line); }
+.superset-group .ex-row:last-of-type { border-bottom: none; }
+
+.set-line.planned { opacity: 0.55; font-style: italic; }
+
+.drop-strip {
+  margin: 2px 0 6px 34px;
+  background: var(--accent-soft);
+  border: 1px dashed var(--accent);
+  border-radius: 12px;
+  padding: 10px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.drop-strip .drop-load {
+  flex: 1;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.bal-emphasis { font-size: 12px; color: var(--ink2); margin-top: 4px; }
+
 /* Water cups (B2): filled state = accent fill, tap toggles by one cupMl. */
 .cup-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .cup {

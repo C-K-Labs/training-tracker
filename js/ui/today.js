@@ -705,6 +705,26 @@ function setLine(exercise, set, label, settings) {
   return line;
 }
 
+// A not-yet-done pyramid rung, previewed dim/italic (C1): shows the planned
+// load x reps so the user can see the ladder before starting it.
+function plannedSetLine(exercise, planSet, label, settings) {
+  const line = el("div", "set-line planned");
+  const weight = loadText(exercise, planSet.load, settings);
+  line.append(
+    el("span", "set-no", label),
+    el("span", null, t("today.set.record", { w: weight, r: num(planSet.reps) })),
+  );
+  return line;
+}
+
+// Method badge chip (C1): only pyramid/superset/dropset get a visible chip;
+// plain items (method null, or a dangling superset half treated as normal)
+// render no chip at all.
+function methodBadge(method) {
+  if (method !== "pyramid" && method !== "superset" && method !== "dropset") return null;
+  return el("span", "chip method", t(`method.${method}`));
+}
+
 function renderActive(root, ctx, data, session) {
   const { settings, programs, sessions, exercisesById, water } = data;
   const program = programs.find((p) => p.id === session.programId) || null;
@@ -732,14 +752,131 @@ function renderActive(root, ctx, data, session) {
   root.appendChild(card);
 
   // Draft of the set currently being entered. Kept across in-place re-renders
-  // of the card, reset whenever the active exercise changes.
-  const draft = { entryIndex: -1, weight: 0, reps: 0, effort: null };
+  // of the card, reset whenever the active exercise (or superset side, or
+  // pyramid rung) changes. dropDismissed/seenWorking are C1 additions.
+  const draft = { entryIndex: -1, weight: 0, reps: 0, effort: null, dropDismissed: false, seenWorking: 0 };
 
   const entryState = (entry, item) => {
     const working = rules.workingSets(entry.sets).length;
     const warm = entry.sets.length - working;
     return { working, warm, complete: working >= item.sets };
   };
+
+  // Resolves the effective program item for an entry BY INDEX, tolerating a
+  // dangling superset half (C1): if the item claims method "superset" but its
+  // neighbor doesn't share its supersetGroup, it renders as a normal item
+  // (no badge, no bundling) rather than as a broken half-pair.
+  function resolveItem(index) {
+    const entry = session.entries[index];
+    const raw = itemFor(program, entry.exerciseId);
+    if (raw.method !== "superset" || !raw.supersetGroup) return raw;
+    const prevEntry = session.entries[index - 1];
+    const nextEntry = session.entries[index + 1];
+    const prevItem = prevEntry ? itemFor(program, prevEntry.exerciseId) : null;
+    const nextItem = nextEntry ? itemFor(program, nextEntry.exerciseId) : null;
+    const pairedNext = nextItem && nextItem.method === "superset" && nextItem.supersetGroup === raw.supersetGroup;
+    const pairedPrev = prevItem && prevItem.method === "superset" && prevItem.supersetGroup === raw.supersetGroup;
+    return (pairedNext || pairedPrev) ? raw : { ...raw, method: null };
+  }
+
+  // ---- dropset helpers (C1) ------------------------------------------
+  function lastMainSet(entry) {
+    for (let i = entry.sets.length - 1; i >= 0; i--) {
+      const s = entry.sets[i];
+      if (!s.warmup && !s.drop) return s;
+    }
+    return null;
+  }
+  function dropsDone(entry) {
+    return entry.sets.filter((s) => s.drop).length;
+  }
+  function dropChainFor(entry, item, exercise) {
+    if (item.method !== "dropset") return [];
+    const mainCount = entry.sets.filter((s) => !s.warmup && !s.drop).length;
+    if (mainCount < item.sets) return [];
+    const last = lastMainSet(entry);
+    if (!last) return [];
+    return rules.dropChain(last.weight, stepsFor(exercise, settings), 2);
+  }
+  function dropPending(entry, item, exercise) {
+    const chain = dropChainFor(entry, item, exercise);
+    return chain.length > 0 && dropsDone(entry) < chain.length;
+  }
+
+  // ---- superset helpers (C1) ------------------------------------------
+  // Whose turn is it: a1,b1,a2,b2... Ties (equal counts, neither done) go to
+  // "a" first, matching the alternation the mockup shows. null = both sides
+  // have reached their own target set count (the bundle is finished).
+  function supersetTurn(entryA, itemA, entryB, itemB) {
+    const doneA = rules.workingSets(entryA.sets).length;
+    const doneB = rules.workingSets(entryB.sets).length;
+    const completeA = doneA >= itemA.sets;
+    const completeB = doneB >= itemB.sets;
+    if (completeA && completeB) return null;
+    if (completeA) return "b";
+    if (completeB) return "a";
+    return doneA <= doneB ? "a" : "b";
+  }
+
+  // The first entry index that still needs work: normal "not complete" for
+  // plain items, whose-turn-is-it for a superset pair, and "drop chain still
+  // offering / not yet dismissed" for a dropset item after its last working
+  // set. -1 when the whole session is done.
+  function computeInteractiveIndex() {
+    let i = 0;
+    while (i < session.entries.length) {
+      const entry = session.entries[i];
+      const item = resolveItem(i);
+      const nextItem = i + 1 < session.entries.length ? resolveItem(i + 1) : null;
+      const paired = item.method === "superset" && nextItem && nextItem.method === "superset"
+        && item.supersetGroup && item.supersetGroup === nextItem.supersetGroup;
+      if (paired) {
+        const nextEntry = session.entries[i + 1];
+        const turn = supersetTurn(entry, item, nextEntry, nextItem);
+        if (turn === "a") return i;
+        if (turn === "b") return i + 1;
+        i += 2;
+        continue;
+      }
+      const exercise = exercisesById[entry.exerciseId] || null;
+      if (!entryState(entry, item).complete) return i;
+      if (item.method === "dropset" && dropPending(entry, item, exercise)
+          && !(draft.entryIndex === i && draft.dropDismissed)) return i;
+      i += 1;
+    }
+    return -1;
+  }
+
+  // Default stepper weight/reps for an entry about to become active:
+  // dropset (post-last-set) reuses the last main set's reps as a starting
+  // point (its weight display is auto-filled from the chain, not this);
+  // pyramid reads the planned rung for the next not-yet-done set; everything
+  // else keeps the existing target-load / recovery-load behavior.
+  function defaultDraftFor(entry, item, exercise) {
+    if (!entry || !item) return { weight: 0, reps: 0 };
+    const steps = stepsFor(exercise, settings);
+    const mainWorking = rules.workingSets(entry.sets).filter((s) => !s.drop).length;
+    const complete = mainWorking >= item.sets;
+    if (item.method === "dropset" && complete) {
+      const last = lastMainSet(entry);
+      return {
+        weight: last ? last.weight : item.targetLoad,
+        reps: last ? last.reps : (entry.targetReps === "max" ? 0 : num(entry.targetReps)),
+      };
+    }
+    if (item.method === "pyramid") {
+      const plan = rules.pyramidPlan(item.targetLoad, entry.targetReps, item.sets, steps);
+      if (plan) {
+        const idx = Math.min(mainWorking, plan.length - 1);
+        return { weight: plan[idx].load, reps: plan[idx].reps };
+      }
+    }
+    const weight = session.recovery
+      ? rules.recoveryLoad(item.targetLoad, settings.recoveryRule.factor, steps)
+      : item.targetLoad;
+    const reps = entry.targetReps === "max" ? 0 : num(entry.targetReps);
+    return { weight, reps };
+  }
 
   // Rest-bar label for the set that will be done next, right after the one
   // just saved: same exercise's next set number, or the next exercise's
@@ -762,6 +899,138 @@ function renderActive(root, ctx, data, session) {
     return t("today.session.allDone");
   }
 
+  // Label after a superset round: the just-saved side is B, so "next" is
+  // usually A's next set (a2, a3, ...); falls through to the normal scan
+  // once the whole bundle is finished.
+  function nextSetLabelSuperset(bEntry, bItem, bExercise, aIdx) {
+    const aEntry = session.entries[aIdx];
+    const aItem = resolveItem(aIdx);
+    const turn = supersetTurn(aEntry, aItem, bEntry, bItem);
+    if (turn === "a") {
+      const aExercise = exercisesById[aEntry.exerciseId] || null;
+      return t("rest.next", { name: aExercise ? aExercise.name : "", n: rules.workingSets(aEntry.sets).length + 1 });
+    }
+    if (turn === "b") {
+      return t("rest.next", { name: bExercise ? bExercise.name : "", n: rules.workingSets(bEntry.sets).length + 1 });
+    }
+    return nextSetLabel(bEntry, bItem, bExercise);
+  }
+
+  function nameCell(exercise, entry) {
+    const name = el("div", "name");
+    name.appendChild(el("span", null, exercise ? exercise.name : entry.exerciseId));
+    if (exercise?.variant) name.appendChild(el("span", "variant", ` ${exercise.variant}`));
+    if (exercise?.emphasis) name.appendChild(el("span", "emphasis", ` · ${exercise.emphasis}`));
+    return name;
+  }
+
+  function exRow(index, item, entry, exercise, activeIndex) {
+    const state = entryState(entry, item);
+    const row = el("div", "ex-row");
+    if (state.complete) row.classList.add("done");
+    if (index === activeIndex) row.classList.add("active");
+    row.appendChild(el("div", "num", String(index + 1)));
+    row.appendChild(nameCell(exercise, entry));
+    const badge = methodBadge(item.method);
+    if (badge) row.appendChild(badge);
+    row.appendChild(el(
+      "div",
+      "meta",
+      `${item.sets}×${repsText(entry.targetReps)} · ${loadText(exercise, item.targetLoad, settings)}`,
+    ));
+    return row;
+  }
+
+  function renderSingleRow(list, index, activeIndex) {
+    const entry = session.entries[index];
+    const item = resolveItem(index);
+    const exercise = exercisesById[entry.exerciseId] || null;
+    const state = entryState(entry, item);
+
+    list.appendChild(exRow(index, item, entry, exercise, activeIndex));
+
+    if (index === activeIndex) {
+      list.appendChild(renderSetBlock(entry, item, exercise));
+    } else if (state.complete) {
+      const suggestion = suggestionFor({ session, sessions, entry, item, exercise, settings });
+      list.appendChild(el("div", "hint", suggestionText(session, suggestion, exercise, settings)));
+    }
+  }
+
+  function renderSupersetGroup(list, aIdx, bIdx, activeIndex) {
+    const group = el("div", "superset-group");
+    for (const index of [aIdx, bIdx]) {
+      const entry = session.entries[index];
+      const item = resolveItem(index);
+      const exercise = exercisesById[entry.exerciseId] || null;
+      group.appendChild(exRow(index, item, entry, exercise, activeIndex));
+    }
+    list.appendChild(group);
+
+    if (activeIndex === aIdx || activeIndex === bIdx) {
+      const entry = session.entries[activeIndex];
+      const item = resolveItem(activeIndex);
+      const exercise = exercisesById[entry.exerciseId] || null;
+      const side = activeIndex === aIdx ? "a" : "b";
+      group.appendChild(renderSetBlock(entry, item, exercise, {
+        supersetSide: side,
+        partnerIndex: side === "a" ? bIdx : aIdx,
+      }));
+    } else {
+      for (const index of [aIdx, bIdx]) {
+        const entry = session.entries[index];
+        const item = resolveItem(index);
+        const state = entryState(entry, item);
+        if (!state.complete) continue;
+        const exercise = exercisesById[entry.exerciseId] || null;
+        const suggestion = suggestionFor({ session, sessions, entry, item, exercise, settings });
+        group.appendChild(el("div", "hint", suggestionText(session, suggestion, exercise, settings)));
+      }
+    }
+  }
+
+  function renderDropStrip(entry, item, exercise) {
+    const strip = el("div", "drop-strip");
+    const chain = dropChainFor(entry, item, exercise);
+    const done = dropsDone(entry);
+    const nextDropLoad = chain[done];
+    strip.appendChild(el("div", "hint", t("today.drop.title")));
+
+    const row = el("div", "stepper-row");
+    const weightDisplay = loadText(exercise, nextDropLoad, settings);
+    row.appendChild(el("div", "drop-load", weightDisplay));
+    row.appendChild(stepper(String(draft.reps), t("common.reps"), {
+      disabled: false,
+      onDown: () => { draft.reps = Math.max(0, draft.reps - 1); renderCard(); },
+      onUp: () => { draft.reps += 1; renderCard(); },
+    }));
+    strip.appendChild(row);
+
+    const actions = el("div", "btn-row");
+    const save = el("button", "btn-primary", t("today.drop.save", { load: weightDisplay }));
+    save.type = "button";
+    save.addEventListener("click", async () => {
+      save.disabled = true;
+      unlockRestAudio();
+      entry.sets.push({ weight: nextDropLoad, reps: num(draft.reps), effort: null, warmup: false, drop: true });
+      await put("sessions", session);
+      if (dropsDone(entry) >= chain.length) {
+        startRest(rules.restSecondsFor(entry.exerciseId, settings), nextSetLabel(entry, item, exercise));
+      }
+      renderCard();
+    });
+    const skip = el("button", "btn-secondary", t("today.drop.skip"));
+    skip.type = "button";
+    skip.addEventListener("click", () => {
+      draft.dropDismissed = true;
+      startRest(rules.restSecondsFor(entry.exerciseId, settings), nextSetLabel(entry, item, exercise));
+      renderCard();
+    });
+    actions.append(save, skip);
+    strip.appendChild(actions);
+    return strip;
+  }
+
   function renderCard() {
     card.replaceChildren();
 
@@ -771,69 +1040,80 @@ function renderActive(root, ctx, data, session) {
     const list = el("div", "ex-list");
     card.appendChild(list);
 
-    const activeIndex = session.entries.findIndex((entry) => {
-      const item = itemFor(program, entry.exerciseId);
-      return !entryState(entry, item).complete;
-    });
+    const activeIndex = computeInteractiveIndex();
     if (draft.entryIndex !== activeIndex) {
-      const entry = activeIndex >= 0 ? session.entries[activeIndex] : null;
-      const item = entry ? itemFor(program, entry.exerciseId) : null;
-      const exercise = entry ? exercisesById[entry.exerciseId] : null;
       draft.entryIndex = activeIndex;
       draft.effort = null;
-      draft.weight = item
-        ? (session.recovery
-            ? rules.recoveryLoad(item.targetLoad, settings.recoveryRule.factor, stepsFor(exercise, settings))
-            : item.targetLoad)
-        : 0;
-      draft.reps = entry ? (entry.targetReps === "max" ? 0 : num(entry.targetReps)) : 0;
+      draft.dropDismissed = false;
+      const entry = activeIndex >= 0 ? session.entries[activeIndex] : null;
+      const item = activeIndex >= 0 ? resolveItem(activeIndex) : null;
+      const exercise = entry ? exercisesById[entry.exerciseId] : null;
+      const d = defaultDraftFor(entry, item, exercise);
+      draft.weight = d.weight;
+      draft.reps = d.reps;
+      draft.seenWorking = entry ? rules.workingSets(entry.sets).filter((s) => !s.drop).length : 0;
+    } else if (draft.entryIndex >= 0) {
+      const entry = session.entries[draft.entryIndex];
+      const item = resolveItem(draft.entryIndex);
+      const exercise = exercisesById[entry.exerciseId] || null;
+      const seenNow = rules.workingSets(entry.sets).filter((s) => !s.drop).length;
+      if (item.method === "pyramid" && seenNow !== draft.seenWorking) {
+        draft.seenWorking = seenNow;
+        const d = defaultDraftFor(entry, item, exercise);
+        draft.weight = d.weight;
+        draft.reps = d.reps;
+      }
     }
 
-    session.entries.forEach((entry, index) => {
-      const item = itemFor(program, entry.exerciseId);
-      const exercise = exercisesById[entry.exerciseId] || null;
-      const state = entryState(entry, item);
-
-      const row = el("div", "ex-row");
-      if (state.complete) row.classList.add("done");
-      if (index === activeIndex) row.classList.add("active");
-      row.appendChild(el("div", "num", String(index + 1)));
-
-      const name = el("div", "name");
-      name.appendChild(el("span", null, exercise ? exercise.name : entry.exerciseId));
-      if (exercise?.variant) name.appendChild(el("span", "variant", ` ${exercise.variant}`));
-      row.appendChild(name);
-
-      row.appendChild(el(
-        "div",
-        "meta",
-        `${item.sets}×${repsText(entry.targetReps)} · ${loadText(exercise, item.targetLoad, settings)}`,
-      ));
-      list.appendChild(row);
-
-      if (index === activeIndex) {
-        list.appendChild(renderSetBlock(entry, item, exercise));
-      } else if (state.complete) {
-        const suggestion = suggestionFor({ session, sessions, entry, item, exercise, settings });
-        list.appendChild(el("div", "hint", suggestionText(session, suggestion, exercise, settings)));
+    let idx = 0;
+    while (idx < session.entries.length) {
+      const item = resolveItem(idx);
+      const nextItem = idx + 1 < session.entries.length ? resolveItem(idx + 1) : null;
+      const paired = item.method === "superset" && nextItem && nextItem.method === "superset"
+        && item.supersetGroup && item.supersetGroup === nextItem.supersetGroup;
+      if (paired) {
+        renderSupersetGroup(list, idx, idx + 1, activeIndex);
+        idx += 2;
+        continue;
       }
-    });
+      renderSingleRow(list, idx, activeIndex);
+      idx += 1;
+    }
 
     if (activeIndex < 0) {
       card.appendChild(el("div", "empty", t("today.session.allDone")));
     }
   }
 
-  function renderSetBlock(entry, item, exercise) {
+  function renderSetBlock(entry, item, exercise, opts = {}) {
     const block = el("div", "set-block");
     const state = entryState(entry, item);
     const warmupTarget = num(item.warmupSets);
     const isWarmup = state.warm < warmupTarget && state.working === 0;
+    const steps = stepsFor(exercise, settings);
+
+    const plan = item.method === "pyramid"
+      ? rules.pyramidPlan(item.targetLoad, entry.targetReps, item.sets, steps)
+      : null;
 
     let workingSeen = 0;
     for (const set of entry.sets) {
-      const label = set.warmup ? t("common.warmup") : t("common.set.n", { n: ++workingSeen });
+      let label;
+      if (set.warmup) label = t("common.warmup");
+      else if (set.drop) label = t("common.drop");
+      else label = t("common.set.n", { n: ++workingSeen });
       block.appendChild(setLine(exercise, set, label, settings));
+    }
+
+    if (plan) {
+      for (let i = workingSeen; i < plan.length; i++) {
+        block.appendChild(plannedSetLine(exercise, plan[i], t("common.set.n", { n: i + 1 }), settings));
+      }
+    }
+
+    if (item.method === "dropset" && dropPending(entry, item, exercise)) {
+      block.appendChild(renderDropStrip(entry, item, exercise));
+      return block;
     }
 
     const entryBox = el("div", "set-entry");
@@ -843,7 +1123,6 @@ function renderActive(root, ctx, data, session) {
       isWarmup ? t("common.warmup") : t("common.set.n", { n: state.working + 1 }),
     ));
 
-    const steps = stepsFor(exercise, settings);
     const bodyweight = exercise?.equipment === "bodyweight";
     const weightDisplay = bodyweight
       ? { main: t("common.bodyweight.load"), small: null }
@@ -902,11 +1181,17 @@ function renderActive(root, ctx, data, session) {
         warmup: isWarmup,
       });
       draft.effort = null;
-      startRest(
-        rules.restSecondsFor(entry.exerciseId, settings),
-        nextSetLabel(entry, item, exercise),
-      );
       await put("sessions", session);
+
+      const nowComplete = entryState(entry, item).complete;
+      const willOfferDrop = item.method === "dropset" && nowComplete && dropPending(entry, item, exercise);
+      const deferForSuperset = opts.supersetSide === "a";
+      if (!willOfferDrop && !deferForSuperset) {
+        const label = opts.supersetSide === "b"
+          ? nextSetLabelSuperset(entry, item, exercise, opts.partnerIndex)
+          : nextSetLabel(entry, item, exercise);
+        startRest(rules.restSecondsFor(entry.exerciseId, settings), label);
+      }
       renderCard();
     });
     entryBox.appendChild(doneBtn);

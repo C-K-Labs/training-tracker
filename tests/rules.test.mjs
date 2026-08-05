@@ -4,11 +4,12 @@ import {
   inventorySteps, snapDown, stepUp, stepDown,
   nextLoad, recoveryLoad,
   gapDays, shouldSuggestRecovery, recoveryWeek,
-  weekKey, weeklyBalance,
+  weekKey, weeklyBalance, emphasisBreakdown,
   monthlyProgressPct, overshootWarning,
   KG_PER_LB, lbToKg, kgToLb, formatLoad, parseLoadInput, restSecondsFor,
   proteinTargetG, proteinCoefDisplay, bodyweightDisplay, leanMassKg,
   paceText, weeklyCardioMinutes,
+  pyramidPlan, dropChain,
 } from "../js/rules.js";
 
 const INVENTORY = {
@@ -256,4 +257,86 @@ test("weeklyCardioMinutes: sums cardio-kind sessions in the given Monday-week on
   ];
   assert.equal(weeklyCardioMinutes(sessions, "2026-08-03"), 75);
   assert.equal(weeklyCardioMinutes(sessions, "2026-07-27"), 20);
+});
+
+// --------------------------------------------------------- methods (v1.1, C)
+
+test("pyramidPlan: ladders down one step and up 2 reps per earlier set, last set = snapped target", () => {
+  const plan = pyramidPlan(90, 8, 4, smithSteps);
+  assert.equal(plan.length, 4);
+  assert.deepEqual(plan[3], { load: 90, reps: 8 });
+  assert.deepEqual(plan[2], { load: 85, reps: 10 });
+  assert.deepEqual(plan[1], { load: 80, reps: 12 });
+  assert.deepEqual(plan[0], { load: 75, reps: 14 });
+});
+
+test("pyramidPlan: snaps a non-step target load down for the top set", () => {
+  const plan = pyramidPlan(92, 8, 2, smithSteps); // 92 is not on the smith ladder
+  assert.equal(plan[1].load, 90); // snapped down to the nearest step
+  assert.equal(plan[0].load, 85);
+});
+
+test("pyramidPlan: never steps below the smallest available step", () => {
+  const dSteps = inventorySteps(dumbbell, INVENTORY);
+  const plan = pyramidPlan(10, 6, 5, dSteps); // only 5 and 10 lie below 10 on this list
+  // once stepDown runs out, the load holds at the smallest step instead of going lower
+  assert.equal(plan[plan.length - 1].load, 10);
+  assert.equal(plan[0].load, dSteps[0]);
+});
+
+test("pyramidPlan: reps cap at 20", () => {
+  const plan = pyramidPlan(90, 19, 5, smithSteps);
+  assert.ok(plan.every((p) => p.reps <= 20));
+  assert.equal(plan[plan.length - 1].reps, 19);
+});
+
+test("pyramidPlan: 'max' rep target falls back to null (render as normal)", () => {
+  assert.equal(pyramidPlan(90, "max", 4, smithSteps), null);
+});
+
+test("dropChain: next lower distinct steps below load, descending", () => {
+  assert.deepEqual(dropChain(90, smithSteps, 2), [85, 80]);
+});
+
+test("dropChain: shorter near the bottom of the range", () => {
+  const dSteps = inventorySteps(dumbbell, INVENTORY);
+  assert.deepEqual(dropChain(dSteps[0], dSteps, 2), []); // already at the floor
+  assert.deepEqual(dropChain(dSteps[1], dSteps, 2), [dSteps[0]]); // only one step below
+});
+
+test("dropChain: empty for bodyweight (single zero step)", () => {
+  assert.deepEqual(dropChain(0, inventorySteps(pullUp, INVENTORY), 2), []);
+});
+
+test("nextLoad: a hard drop set is ignored for the verdict, same as warm-ups", () => {
+  const withDrop = sets([[8, "easy"], [8, "easy"], [8, "easy"]]).concat([
+    { weight: 60, reps: 12, effort: "hard", warmup: false, drop: true },
+  ]);
+  const r = nextLoad({ sets: withDrop, targetReps: 8, currentLoad: 90, steps: smithSteps });
+  assert.equal(r.action, "increase");
+});
+
+test("emphasisBreakdown: counts working sets per emphasis label within body part, this week only", () => {
+  const exercises = {
+    "latpulldown-close": { id: "latpulldown-close", bodyPart: "back", emphasis: "광배근 하부" },
+    "latpulldown-wide": { id: "latpulldown-wide", bodyPart: "back", emphasis: "광배근 상부" },
+    "smith-squat": { id: "smith-squat", bodyPart: "legs" }, // no emphasis: excluded
+  };
+  const mkSets = (n, { warmups = 0, drops = 0 } = {}) => [
+    ...Array.from({ length: warmups }, () => ({ reps: 5, effort: "easy", warmup: true })),
+    ...Array.from({ length: n }, () => ({ reps: 8, effort: "normal", warmup: false })),
+    ...Array.from({ length: drops }, () => ({ reps: 10, effort: "hard", warmup: false, drop: true })),
+  ];
+  const sessions = [
+    { kind: "weights", date: "2026-08-03", entries: [
+      { exerciseId: "latpulldown-close", sets: mkSets(3, { warmups: 1 }) },
+      { exerciseId: "latpulldown-wide", sets: mkSets(3, { drops: 2 }) },
+      { exerciseId: "smith-squat", sets: mkSets(3) },
+    ]},
+    { kind: "weights", date: "2026-07-27", entries: [
+      { exerciseId: "latpulldown-close", sets: mkSets(5) }, // prior week: excluded
+    ]},
+  ];
+  const totals = emphasisBreakdown(sessions, exercises, "2026-08-03");
+  assert.deepEqual(totals, { back: { "광배근 하부": 3, "광배근 상부": 5 } });
 });
