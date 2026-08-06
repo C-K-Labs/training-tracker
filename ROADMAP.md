@@ -3,6 +3,37 @@
 Single source of truth for project status and what comes next. Update this
 file at the end of every working session.
 
+## Status (2026-08-05)
+
+v1.1 complete and deployed (commits 1f33154..HEAD, five feature deploys).
+
+- Shipped from first-real-session feedback: rest countdown bar (timestamp
+  based, per-exercise overrides, vibration+beep), display units both/kg/lb
+  (storage untouched), dumbbell range+chip inventory editor, cardio
+  generalization with run-migration (DB v2) and RPE/optional HR/auto pace,
+  daily water cups vs configurable guide target, protein target from
+  bodyweight x coefficient (unit-aware g/kg / g/lb, documented ranges),
+  body fat / skeletal muscle tracking with lean-mass analysis, WHO weekly
+  cardio band, training methods (pyramid/superset/dropset) with method-aware
+  session flow, variant emphasis labels feeding balance stats, rule-based
+  course generator (720-combination invariant sweep, 0 failures) + first-run
+  onboarding wizard + settings regenerate, read-only guest profiles, full
+  en/es/pt dictionaries with native gym terminology (353-key parity).
+- Verification: 64 node tests green; per-group browser verification
+  (Playwright/CDP); release-checkpoint security review clean (baseline in
+  the skillset home reports\).
+- Personal program updated in exports/program-pack.json (leg curl, dumbbell
+  RDL, pec deck fly, close-grip pulldown in; front raise and leg press out
+  of programs): REIMPORT THE PACK ON THE PHONE (merge) to pick it up, or
+  edit the sessions in-app to match.
+- Watch interface: excluded from v1.1 by decision; standalone watch use
+  needs a native app (Wear OS/watchOS) with its own data sync. Revisit as a
+  separate track if wanted.
+- Plan document with all acceptance items checked:
+  docs/plans/FEATURE-training-tracker-v1.1.md
+- v1.1 design mockup artifact:
+  https://claude.ai/code/artifact/4620ce7d-cfa7-4df0-9607-14451a0c7f8b
+
 ## Status (2026-08-04)
 
 v1 complete and deployed.

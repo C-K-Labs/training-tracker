@@ -1,4 +1,4 @@
-# Feature Plan: training-tracker v1.1
+﻿# Feature Plan: training-tracker v1.1
 
 Locked plan. Approved by the user on 2026-08-05 after three consultation
 rounds, a design mockup review, and an evidence-checked program analysis.
@@ -20,52 +20,52 @@ Execution is autonomous against this document; deploy happens per group.
 
 ### Acceptance checklist
 
-- [ ] A1 Saving a working set auto-starts a rest countdown in a bar above
+- [x] A1 Saving a working set auto-starts a rest countdown in a bar above
       the tab bar; timestamp-based (survives screen off/reload); vibration
       plus beep at zero; +30s and skip controls.
-- [ ] A2 Rest duration: global default (90s) with per-exercise overrides;
+- [x] A2 Rest duration: global default (90s) with per-exercise overrides;
       settings copy recommends 2-3 min compounds, 1-1.5 min isolation.
-- [ ] A3 Display unit setting both/kg/lb affects all load displays and
+- [x] A3 Display unit setting both/kg/lb affects all load displays and
       inputs; stored values never change; "both" shows converted + original.
-- [ ] A4 Inventory editor: min/max/step range generator plus per-chip
+- [x] A4 Inventory editor: min/max/step range generator plus per-chip
       toggle and manual add; suggestions use enabled chips only.
-- [ ] B1 Run records generalized to cardio with activity selection
+- [x] B1 Run records generalized to cardio with activity selection
       (running, cycling, rowing, swimming, hiking, walking, custom); HR
       optional; RPE chips (easy/normal/hard); pace auto-computed from
       time+distance; existing run sessions migrated to cardio/running.
-- [ ] B2 Daily check gains water cups (cup=250ml, editable target, guide
+- [x] B2 Daily check gains water cups (cup=250ml, editable target, guide
       not cap, overshoot allowed) stored per day.
-- [ ] B3 Protein target = latest bodyweight x coefficient, shown under
+- [x] B3 Protein target = latest bodyweight x coefficient, shown under
       bodyweight; coefficient setting documents ranges (1.2-1.6 general,
       1.6-2.2 hypertrophy, 1.8-2.7 cutting, g/kg; lb-mode shows g/lb
       equivalents 0.54-0.73 / 0.73-1.0 / 0.82-1.22).
-- [ ] B4 Bodyweight unit setting (kg/lb) independent of load display unit;
+- [x] B4 Bodyweight unit setting (kg/lb) independent of load display unit;
       governs bodyweight entry and protein coefficient display; storage
       stays kg.
-- [ ] B5 Bodyweight entries accept optional body fat percent and skeletal
+- [x] B5 Bodyweight entries accept optional body fat percent and skeletal
       muscle mass; stats show tiles + trend for both; analysis sentence
       based on lean-mass change appears only with 2+ data points.
-- [ ] B6 Stats: weekly cardio minutes vs WHO 150-300 moderate band.
-- [ ] C1 Program items accept method normal/pyramid/superset/dropset;
+- [x] B6 Stats: weekly cardio minutes vs WHO 150-300 moderate band.
+- [x] C1 Program items accept method normal/pyramid/superset/dropset;
       picker shows one-line tradeoffs; session screen renders set structure
       accordingly (pyramid ramps, superset alternates with rest at pair end,
       dropset chains descending loads from inventory steps).
-- [ ] C2 Exercise variants carry a target-emphasis label feeding session
+- [x] C2 Exercise variants carry a target-emphasis label feeding session
       display and the weekly body-part balance stats.
-- [ ] C3 Rule-based generator: goal x days/week x experience x equipment x
+- [x] C3 Rule-based generator: goal x days/week x experience x equipment x
       session length -> split template (full-body/upper-lower/PPL) with
       sessions; volume within 10-20 sets/part/week; main lifts 2x/week;
       rest defaults 2-3 min compounds, 1-1.5 min isolation; pure functions
       with node tests.
-- [ ] C4 Onboarding wizard on first run without data: import branch or
+- [x] C4 Onboarding wizard on first run without data: import branch or
       5-question flow (goal, days/week, experience, equipment, session
       minutes) ending in a generated course preview the user can edit.
-- [ ] D1 Pack import offers merge-into-mine or view-as-guest; guest
+- [x] D1 Pack import offers merge-into-mine or view-as-guest; guest
       profiles are read-only, switchable in log/stats, deletable, and
       excluded from my stats, suggestions, and backups.
-- [ ] E1 en dictionary filled; es/pt filled; terminology must be what
+- [x] E1 en dictionary filled; es/pt filled; terminology must be what
       lifters actually use in each language (verified list below).
-- [ ] E2 Generator exercise catalog localized with real names
+- [x] E2 Generator exercise catalog localized with real names
       (e.g. en Lat Pulldown / es jalon al pecho / pt puxada alta).
 
 ## Design Decisions (from consultation)
@@ -132,23 +132,23 @@ heavy/high-rep undulation preserved. Hamstrings now trained directly 2x/week
 
 ## Task Checklist (grouped; deploy after each group)
 
-- [ ] G-A Usability (delegate): store settings + unit/rest rules + tests;
+- [x] G-A Usability (delegate): store settings + unit/rest rules + tests;
       rest bar; display-unit formatting everywhere; inventory editor.
       Verify: node tests, browser walk of A1-A4.
-- [ ] G-B Records (delegate): DB v2 migration (profileId groundwork +
+- [x] G-B Records (delegate): DB v2 migration (profileId groundwork +
       cardio + body comp + water); cardio UI; water card; protein line;
       bodyweight unit; stats additions. Verify: node tests, migration
       round-trip on seeded data, B1-B6.
-- [ ] G-C Intelligence (delegate): methods model + session rendering;
+- [x] G-C Intelligence (delegate): methods model + session rendering;
       variant emphasis labels + balance integration; generator + tests;
       onboarding wizard; settings regenerate. Verify: C1-C4.
-- [ ] G-D Profiles (delegate): guest import path, switcher, exclusions,
+- [x] G-D Profiles (delegate): guest import path, switcher, exclusions,
       delete. Verify: D1 with a second pack.
-- [ ] G-E i18n (delegate + supervisor terminology review): fill en/es/pt.
+- [x] G-E i18n (delegate + supervisor terminology review): fill en/es/pt.
       Verify: E1-E2 spot check against the approved terminology list.
-- [ ] Pack update (direct, done first): program-pack.json per approved
+- [x] Pack update (direct, done first): program-pack.json per approved
       program.
-- [ ] Final gate: full browser e2e of acceptance list, security-check on
+- [x] Final gate: full browser e2e of acceptance list, security-check on
       the complete diff, ROADMAP.md update, final deploy.
 
 ## Approved terminology anchors for E (verified by supervisor)
