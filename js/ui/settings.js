@@ -165,9 +165,12 @@ function rowEl(list, open, key, opts) {
   return row;
 }
 
-async function commitSettings(state, ctx) {
+// silent (v1.1.1 polish item 4): field-level autosaves inside the program
+// card (sets/reps/targetLoad/warmupSets/method item fields, the rest default
+// field) skip the toast; every other caller keeps the confirmation.
+async function commitSettings(state, ctx, { silent = false } = {}) {
   await saveSettings(state.settings);
-  ctx.showToast(t("settings.saved"));
+  if (!silent) ctx.showToast(t("settings.saved"));
 }
 
 // ------------------------------------------------------------------ mount
@@ -351,7 +354,7 @@ function overridesEditor(box, state, ctx, render) {
       : String(ov && ov.max != null ? ov.max : t("common.none"));
     const line = flexBox();
     line.style.justifyContent = "space-between";
-    line.appendChild(el("div", null, `${ex ? exLabel(ex) : exerciseId} · ${value}`));
+    line.appendChild(el("div", null, `${ex ? exLabel(ex) : t("common.exercise.deleted")} · ${value}`));
     const remove = el("button", "link", t("common.delete"));
     remove.addEventListener("click", async () => {
       delete overrides[exerciseId];
@@ -477,7 +480,7 @@ function restEditor(box, state, ctx, render) {
     const v = numValue(def.control, NaN);
     if (!Number.isFinite(v) || v < 10) return;
     state.settings.restDefaultSec = v;
-    await commitSettings(state, ctx);
+    await commitSettings(state, ctx, { silent: true });
     render();
   });
   box.appendChild(save);
@@ -497,7 +500,7 @@ function restEditor(box, state, ctx, render) {
     const ex = state.exercises.find((e) => e.id === exerciseId);
     const line = flexBox();
     line.style.justifyContent = "space-between";
-    line.appendChild(el("div", null, `${ex ? exLabel(ex) : exerciseId} · ${mmss(secs)}`));
+    line.appendChild(el("div", null, `${ex ? exLabel(ex) : t("common.exercise.deleted")} · ${mmss(secs)}`));
     const remove = el("button", "link", t("common.delete"));
     remove.addEventListener("click", async () => {
       delete overrides[exerciseId];
@@ -536,9 +539,12 @@ function restEditor(box, state, ctx, render) {
   box.appendChild(overridesWrap);
 }
 
-async function saveProgram(program, ctx, rerender) {
+// silent (v1.1.1 polish item 4): field-level item edits (sets/reps/
+// targetLoad/warmupSets/method) skip the toast; structural program actions
+// (add/remove item, add/delete program, reorder, exercise picker) keep it.
+async function saveProgram(program, ctx, rerender, { silent = false } = {}) {
   await put("programs", program);
-  ctx.showToast(t("settings.saved"));
+  if (!silent) ctx.showToast(t("settings.saved"));
   if (rerender) rerender();
 }
 
@@ -663,7 +669,7 @@ function methodField(program, index, state, ctx, render) {
         item.method = m;
         delete item.supersetGroup;
       }
-      await saveProgram(program, ctx, render);
+      await saveProgram(program, ctx, render, { silent: true });
     });
     seg.appendChild(btn);
   }
@@ -679,7 +685,7 @@ function methodField(program, index, state, ctx, render) {
     const partner = program.items.find((it, i) => i !== index && it.supersetGroup === item.supersetGroup);
     const partnerEx = partner ? state.exercises.find((e) => e.id === partner.exerciseId) : null;
     wrap.appendChild(el("div", "hint", t("settings.program.method.pairedWith", {
-      name: partnerEx ? exLabel(partnerEx) : (partner ? partner.exerciseId : ""),
+      name: partnerEx ? exLabel(partnerEx) : (partner ? t("common.exercise.deleted") : ""),
     })));
   }
   return wrap;
@@ -716,20 +722,20 @@ function itemBlock(program, index, state, ctx, render) {
 
   sets.control.addEventListener("change", async () => {
     item.sets = numValue(sets.control, item.sets);
-    await saveProgram(program, ctx);
+    await saveProgram(program, ctx, null, { silent: true });
   });
   reps.control.addEventListener("change", async () => {
     item.reps = numValue(reps.control, 8);
-    await saveProgram(program, ctx);
+    await saveProgram(program, ctx, null, { silent: true });
   });
   load.control.addEventListener("change", async () => {
     item.targetLoad = rules.parseLoadInput(load.control.value, load.storedUnit, load.displayUnit);
     load.hint.textContent = rules.formatLoad(item.targetLoad, load.storedUnit, load.displayUnit);
-    await saveProgram(program, ctx);
+    await saveProgram(program, ctx, null, { silent: true });
   });
   warmup.control.addEventListener("change", async () => {
     item.warmupSets = numValue(warmup.control, item.warmupSets);
-    await saveProgram(program, ctx);
+    await saveProgram(program, ctx, null, { silent: true });
   });
 
   const tail = flexBox("8px");
@@ -750,7 +756,8 @@ function itemBlock(program, index, state, ctx, render) {
       reps.control.value = "8";
       reps.control.disabled = false;
     }
-    await saveProgram(program, ctx);
+    // Same logical field as the reps number input above: silent too (item 4).
+    await saveProgram(program, ctx, null, { silent: true });
   });
   maxWrap.append(maxBox, el("span", null, t("common.max.reps")));
 
@@ -779,6 +786,19 @@ function itemBlock(program, index, state, ctx, render) {
   return wrap;
 }
 
+// Usage-aware delete confirm (v1.1.1 polish item 9a): counts program-item
+// references and session-entry references so the confirm dialog can warn
+// before an in-use exercise is deleted.
+function exerciseUsage(state, exerciseId) {
+  const programs = state.programs.reduce(
+    (n, p) => n + (p.items || []).filter((i) => i.exerciseId === exerciseId).length, 0,
+  );
+  const sessions = state.sessions.reduce(
+    (n, s) => n + (s.entries || []).filter((e) => e.exerciseId === exerciseId).length, 0,
+  );
+  return { programs, sessions };
+}
+
 function libraryEditor(box, state, ctx, render) {
   for (const ex of state.exercises) {
     const line = flexBox();
@@ -802,7 +822,11 @@ function libraryEditor(box, state, ctx, render) {
 
     const remove = el("button", "link", t("common.delete"));
     remove.addEventListener("click", async () => {
-      if (!confirm(t("common.delete.confirm", { name: exLabel(ex) }))) return;
+      const usage = exerciseUsage(state, ex.id);
+      const msg = t("settings.program.library.delete.usage", {
+        p: usage.programs, s: usage.sessions, name: t("common.exercise.deleted"),
+      });
+      if (!confirm(msg)) return;
       await del("exercises", ex.id);
       state.exercises = await getAll("exercises");
       ctx.showToast(t("settings.saved"));

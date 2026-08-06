@@ -3,6 +3,23 @@
 Single source of truth for project status and what comes next. Update this
 file at the end of every working session.
 
+## Status (2026-08-06)
+
+v1.1.1 polish batch complete and deployed on top of v1.1:
+
+- Log detail marks unperformed exercises 미수행 instead of "0x8"; cardio
+  sessions gained their missing delete link (was unreachable, real defect);
+  trend selector lists current-program exercises first; program editor
+  field edits autosave silently (structural actions still toast); warm-up
+  sets open at 50% of target snapped to inventory; daily check covers five
+  pain areas (knee, low back, shoulder, elbow, wrist); calisthenics quick
+  log supports hold-seconds mode; deleting a library exercise warns with
+  usage counts and every surface renders 삭제된 운동 for orphaned ids.
+- Tab-bar overlap item closed as not-reproducible (measured clearances
+  23-59px at max scroll in three scenarios, including with the rest bar).
+- 72 node tests green; i18n parity 364 keys x 4 languages; browser-verified
+  per item via CDP.
+
 ## Status (2026-08-05)
 
 v1.1 complete and deployed (commits 1f33154..HEAD, five feature deploys).
@@ -85,19 +102,10 @@ v1 complete and deployed.
    lives only locally (gitignored). Caveat: the repo was public for under an
    hour with the old hashes; GitHub can cache orphaned commits until its own
    GC, so treat exposure as unlikely but not provably zero.
-3. Polish backlog (small):
-   - Log detail renders unperformed exercises as "0×8"; hide or mark them.
-   - Bottom-most interactive elements can sit under the fixed tab bar;
-     add scroll padding.
-   - Trend selector orders by most recent use; consider main lifts first.
-   - Program editor toasts on every field change; batch or quiet it.
-   - Warm-up sets open at the working load; consider a lower default.
-4. v1.1 candidates: multiple pain areas in the daily check (knee only now),
-   hold-time units for calisthenics (reps only now), delete path for run
-   sessions in the log, orphaned-exercise handling when the library entry is
-   deleted.
-5. i18n: fill the en dictionary, then es/pt (structure is ready; screens
-   have no hardcoded UI strings).
+3. ~~Polish backlog~~ RESOLVED 2026-08-06 (v1.1.1, see top).
+4. ~~v1.1 candidates~~ RESOLVED: pain areas, hold-time, cardio delete, and
+   orphaned-exercise handling shipped in v1.1.1 (2026-08-06).
+5. ~~i18n~~ RESOLVED: en/es/pt filled in v1.1 group E (2026-08-05).
 6. Before promoting the app publicly (not needed for personal use): run the
    web-launch playbook (dependency-audit, security-check-stack,
    launch-check) and polish the README.

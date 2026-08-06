@@ -10,6 +10,7 @@ import {
   proteinTargetG, proteinCoefDisplay, bodyweightDisplay, leanMassKg,
   paceText, weeklyCardioMinutes,
   pyramidPlan, dropChain,
+  warmupDefaultLoad, orderTrendExercises, workingSets,
 } from "../js/rules.js";
 
 const INVENTORY = {
@@ -339,4 +340,79 @@ test("emphasisBreakdown: counts working sets per emphasis label within body part
   ];
   const totals = emphasisBreakdown(sessions, exercises, "2026-08-03");
   assert.deepEqual(totals, { back: { "광배근 하부": 3, "광배근 상부": 5 } });
+});
+
+// ------------------------------------------------- polish backlog (v1.1.1)
+
+test("warmupDefaultLoad: 50% of target load snapped down to a smith step", () => {
+  assert.equal(warmupDefaultLoad(90, smithSteps), 45); // 45 is itself a valid smith step
+});
+
+test("warmupDefaultLoad: snaps down when 50% doesn't land on a step", () => {
+  assert.equal(warmupDefaultLoad(92, smithSteps), 45); // 46 -> snaps down to 45
+});
+
+test("warmupDefaultLoad: clamps at the smallest available step, never below it", () => {
+  const dSteps = inventorySteps(dumbbell, INVENTORY); // smallest step is 5
+  assert.equal(warmupDefaultLoad(3, dSteps), 5); // 50% = 1.5, below every step
+});
+
+test("warmupDefaultLoad: bodyweight (single zero step) and empty step lists collapse to 0", () => {
+  assert.equal(warmupDefaultLoad(20, inventorySteps(pullUp, INVENTORY)), 0);
+  assert.equal(warmupDefaultLoad(20, []), 0);
+});
+
+test("orderTrendExercises: current-program exercises first (program order), then remaining by recency", () => {
+  const exercisesById = {
+    "smith-squat": { id: "smith-squat", name: "Smith Squat" },
+    "db-row": { id: "db-row", name: "DB Row" },
+    "lat-pulldown": { id: "lat-pulldown", name: "Lat Pulldown" },
+  };
+  const programs = [
+    { id: "p1", kind: "weights", items: [{ exerciseId: "db-row" }, { exerciseId: "smith-squat" }] },
+  ];
+  const sessions = [
+    { kind: "weights", date: "2026-08-01", entries: [{ exerciseId: "smith-squat" }] },
+    { kind: "weights", date: "2026-08-05", entries: [{ exerciseId: "lat-pulldown" }] },
+    { kind: "weights", date: "2026-08-02", entries: [{ exerciseId: "db-row" }] },
+  ];
+  const order = orderTrendExercises(programs, sessions, exercisesById).map((e) => e.id);
+  // db-row and smith-squat are in the current program (program item order),
+  // both logged so both qualify; lat-pulldown is logged but not in any
+  // program, so it falls into the "remaining by recency" bucket last.
+  assert.deepEqual(order, ["db-row", "smith-squat", "lat-pulldown"]);
+});
+
+test("orderTrendExercises: exercises never logged are excluded even if in a program", () => {
+  const exercisesById = { "smith-squat": { id: "smith-squat", name: "Smith Squat" } };
+  const programs = [{ id: "p1", kind: "weights", items: [{ exerciseId: "never-logged" }, { exerciseId: "smith-squat" }] }];
+  const sessions = [{ kind: "weights", date: "2026-08-01", entries: [{ exerciseId: "smith-squat" }] }];
+  const order = orderTrendExercises(programs, sessions, exercisesById).map((e) => e.id);
+  assert.deepEqual(order, ["smith-squat"]);
+});
+
+test("orderTrendExercises: orphaned (deleted) exercise ids stay as recency candidates with a placeholder", () => {
+  const exercisesById = { "smith-squat": { id: "smith-squat", name: "Smith Squat" } };
+  const sessions = [
+    { kind: "weights", date: "2026-08-01", entries: [{ exerciseId: "smith-squat" }] },
+    { kind: "weights", date: "2026-08-05", entries: [{ exerciseId: "gone-ex" }] },
+  ];
+  const order = orderTrendExercises([], sessions, exercisesById);
+  assert.deepEqual(order.map((e) => e.id), ["gone-ex", "smith-squat"]);
+  assert.equal(order[0].deleted, true);
+});
+
+test("weeklyBalance: a holdSec set (reps 0) still counts as a working set", () => {
+  const exercises = { "wall-handstand-hold": { id: "wall-handstand-hold", bodyPart: "shoulders" } };
+  const sessions = [
+    { kind: "weights", date: "2026-08-03", entries: [
+      { exerciseId: "wall-handstand-hold", sets: [
+        { weight: 0, reps: 0, holdSec: 45, effort: null, warmup: false },
+        { weight: 0, reps: 0, holdSec: 30, effort: null, warmup: false },
+      ] },
+    ]},
+  ];
+  const totals = weeklyBalance(sessions, exercises, "2026-08-03");
+  assert.deepEqual(totals, { shoulders: 2 });
+  assert.equal(workingSets(sessions[0].entries[0].sets).length, 2);
 });

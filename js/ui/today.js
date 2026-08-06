@@ -11,9 +11,34 @@ import * as rules from "../rules.js";
 export const titleKey = "tab.today";
 export const subKey = "screen.today.sub.idle";
 
-// Pain area map key. This is a data key stored in session.daily.pain,
-// not UI copy, so it is not resolved through t().
-const PAIN_AREA = "무릎";
+// Pain area map keys (v1.1.1 polish item 6). These are data keys stored in
+// session.daily.pain, not UI copy; each one resolves to a label through
+// pain.area.<slug> in i18n. Older sessions may carry other (legacy) keys,
+// e.g. the pre-item-6 Korean literal "무릎"; painAreaLabel renders those
+// raw rather than dropping or crashing on them.
+const PAIN_AREA_SLUGS = ["knee", "lowback", "shoulder", "elbow", "wrist"];
+
+function painAreaLabel(slug) {
+  return PAIN_AREA_SLUGS.includes(slug) ? t(`pain.area.${slug}`) : slug;
+}
+
+// Summary text for the daily-check chip: only areas with a value > 0, known
+// slugs first in fixed order, then any other (legacy) keys present in the
+// map, e.g. "무릎 2 · 허리 1". Empty string when nothing is painful.
+function painSummaryText(pain) {
+  const map = pain || {};
+  const parts = [];
+  for (const slug of PAIN_AREA_SLUGS) {
+    const v = num(map[slug]);
+    if (v > 0) parts.push(`${painAreaLabel(slug)} ${v}`);
+  }
+  for (const [slug, v] of Object.entries(map)) {
+    if (PAIN_AREA_SLUGS.includes(slug)) continue;
+    const n = num(v);
+    if (n > 0) parts.push(`${painAreaLabel(slug)} ${n}`);
+  }
+  return parts.join(" · ");
+}
 
 const EFFORT_LEVELS = ["hard", "normal", "easy"];
 const EFFORT_CHIP = { hard: "bad", normal: "neutral", easy: "good" };
@@ -540,8 +565,32 @@ function renderCalisthenicsCard(ctx, exercises) {
     option.textContent = exercise.name;
     select.appendChild(option);
   }
-  const reps = numberInput(10, { min: 0, step: 1 });
-  body.append(field(t("today.cal.pick"), select), field(t("common.reps"), reps));
+  body.appendChild(field(t("today.cal.pick"), select));
+
+  // Recording mode toggle (v1.1.1 polish item 7): 횟수 (reps, default) or
+  // 시간(초) (hold seconds). Only the label + which field the value writes to
+  // changes; the value input itself is shared.
+  let mode = "reps";
+  const modeSeg = el("div", "seg");
+  const repsBtn = el("button", "sel", t("today.cal.mode.reps"));
+  const secBtn = el("button", null, t("today.cal.mode.seconds"));
+  repsBtn.type = "button";
+  secBtn.type = "button";
+  modeSeg.append(repsBtn, secBtn);
+  body.appendChild(modeSeg);
+
+  const value = numberInput(10, { min: 0, step: 1 });
+  const valueField = field(mode === "seconds" ? t("today.cal.mode.seconds") : t("common.reps"), value);
+  body.appendChild(valueField);
+
+  function setMode(next) {
+    mode = next;
+    repsBtn.classList.toggle("sel", mode === "reps");
+    secBtn.classList.toggle("sel", mode === "seconds");
+    valueField.firstChild.textContent = mode === "seconds" ? t("today.cal.mode.seconds") : t("common.reps");
+  }
+  repsBtn.addEventListener("click", () => setMode("reps"));
+  secBtn.addEventListener("click", () => setMode("seconds"));
 
   const sets = [];
   const list = el("div", "set-block");
@@ -555,9 +604,12 @@ function renderCalisthenicsCard(ctx, exercises) {
     list.replaceChildren();
     sets.forEach((set, index) => {
       const line = el("div", "set-line");
+      const recordText = set.holdSec > 0
+        ? t("today.set.hold", { n: set.holdSec })
+        : t("today.set.record", { w: t("common.bodyweight.load"), r: set.reps });
       line.append(
         el("span", "set-no", t("common.set.n", { n: index + 1 })),
-        el("span", null, t("today.set.record", { w: t("common.bodyweight.load"), r: set.reps })),
+        el("span", null, recordText),
       );
       list.appendChild(line);
     });
@@ -567,7 +619,8 @@ function renderCalisthenicsCard(ctx, exercises) {
   const add = el("button", "btn-secondary", t("common.add"));
   add.type = "button";
   add.addEventListener("click", () => {
-    sets.push({ weight: 0, reps: num(reps.value), effort: null, warmup: false });
+    if (mode === "seconds") sets.push({ weight: 0, reps: 0, holdSec: num(value.value), effort: null, warmup: false });
+    else sets.push({ weight: 0, reps: num(value.value), effort: null, warmup: false });
     redraw();
   });
   body.appendChild(add);
@@ -619,13 +672,13 @@ function renderDailyCard(ctx, session) {
   card.appendChild(el("h2", null, t("today.daily.title")));
 
   const daily = session.daily || emptyDaily();
-  const painValue = num(daily.pain?.[PAIN_AREA]);
   const chips = el("div", "daily-row");
   chips.append(
     el("span", "chip neutral", t("today.daily.sleep", { h: daily.sleepH == null ? "-" : fmtNum(daily.sleepH) })),
     el("span", "chip neutral", t("today.daily.condition", { v: daily.condition == null ? "-" : fmtNum(daily.condition) })),
-    el("span", `chip ${painValue > 0 ? "bad" : "neutral"}`, t("today.daily.pain", { area: PAIN_AREA, v: painValue })),
   );
+  const painSummary = painSummaryText(daily.pain);
+  if (painSummary) chips.appendChild(el("span", "chip bad", painSummary));
   if (daily.heat) chips.appendChild(el("span", "chip neutral", t("today.daily.heat")));
   if (daily.proteinOk) chips.appendChild(el("span", "chip neutral", t("today.daily.protein")));
   card.appendChild(chips);
@@ -639,14 +692,21 @@ function renderDailyCard(ctx, session) {
 
   const sleep = numberInput(daily.sleepH ?? "", { min: 0, max: 24, step: 0.5 });
   const condition = numberInput(daily.condition ?? "", { min: 1, max: 5, step: 1 });
-  const pain = numberInput(painValue, { min: 0, max: 3, step: 1 });
+  const painInputs = {};
+  for (const slug of PAIN_AREA_SLUGS) {
+    const v = num(daily.pain?.[slug]);
+    painInputs[slug] = numberInput(v, { min: 0, max: 3, step: 1 });
+  }
   const heat = checkboxField(t("today.daily.heat"), daily.heat);
   const protein = checkboxField(t("today.daily.protein"), daily.proteinOk);
   const note = textInput(daily.note || "");
   form.append(
     field(t("today.daily.sleep", { h: daily.sleepH == null ? "-" : fmtNum(daily.sleepH) }), sleep),
     field(t("today.daily.condition", { v: daily.condition == null ? "-" : fmtNum(daily.condition) }), condition),
-    field(t("today.daily.pain", { area: PAIN_AREA, v: painValue }), pain),
+    ...PAIN_AREA_SLUGS.map((slug) => field(
+      t("today.daily.pain", { area: painAreaLabel(slug), v: num(daily.pain?.[slug]) }),
+      painInputs[slug],
+    )),
     heat.wrap,
     protein.wrap,
     field(t("today.daily.note"), note),
@@ -656,10 +716,12 @@ function renderDailyCard(ctx, session) {
   save.type = "button";
   save.addEventListener("click", async () => {
     save.disabled = true;
+    const nextPain = { ...(daily.pain || {}) };
+    for (const slug of PAIN_AREA_SLUGS) nextPain[slug] = num(painInputs[slug].value);
     session.daily = {
       sleepH: sleep.value === "" ? null : num(sleep.value),
       condition: condition.value === "" ? null : num(condition.value),
-      pain: { ...(daily.pain || {}), [PAIN_AREA]: num(pain.value) },
+      pain: nextPain,
       heat: heat.input.checked,
       proteinOk: protein.input.checked,
       note: note.value,
@@ -855,6 +917,18 @@ function renderActive(root, ctx, data, session) {
   function defaultDraftFor(entry, item, exercise) {
     if (!entry || !item) return { weight: 0, reps: 0 };
     const steps = stepsFor(exercise, settings);
+    // Warm-up set about to open (v1.1.1 polish item 5): default the stepper
+    // to 50% of the item's target load, snapped to this exercise's inventory
+    // steps, regardless of method (a warm-up always precedes any working set
+    // in every method). Working sets keep the behavior below unchanged.
+    const state = entryState(entry, item);
+    const warmupTarget = num(item.warmupSets);
+    if (state.warm < warmupTarget && state.working === 0) {
+      return {
+        weight: rules.warmupDefaultLoad(item.targetLoad, steps),
+        reps: entry.targetReps === "max" ? 0 : num(entry.targetReps),
+      };
+    }
     const mainWorking = rules.workingSets(entry.sets).filter((s) => !s.drop).length;
     const complete = mainWorking >= item.sets;
     if (item.method === "dropset" && complete) {
@@ -884,7 +958,7 @@ function renderActive(root, ctx, data, session) {
   function nextSetLabel(entry, item, exercise) {
     const state = entryState(entry, item);
     if (!state.complete) {
-      return t("rest.next", { name: exercise ? exercise.name : "", n: state.working + 1 });
+      return t("rest.next", { name: exercise ? exercise.name : t("common.exercise.deleted"), n: state.working + 1 });
     }
     const idx = session.entries.indexOf(entry);
     for (let i = idx + 1; i < session.entries.length; i++) {
@@ -893,7 +967,7 @@ function renderActive(root, ctx, data, session) {
       const nextState = entryState(nextEntry, nextItem);
       if (!nextState.complete) {
         const nextEx = exercisesById[nextEntry.exerciseId] || null;
-        return t("rest.next", { name: nextEx ? nextEx.name : nextEntry.exerciseId, n: nextState.working + 1 });
+        return t("rest.next", { name: nextEx ? nextEx.name : t("common.exercise.deleted"), n: nextState.working + 1 });
       }
     }
     return t("today.session.allDone");
@@ -908,17 +982,17 @@ function renderActive(root, ctx, data, session) {
     const turn = supersetTurn(aEntry, aItem, bEntry, bItem);
     if (turn === "a") {
       const aExercise = exercisesById[aEntry.exerciseId] || null;
-      return t("rest.next", { name: aExercise ? aExercise.name : "", n: rules.workingSets(aEntry.sets).length + 1 });
+      return t("rest.next", { name: aExercise ? aExercise.name : t("common.exercise.deleted"), n: rules.workingSets(aEntry.sets).length + 1 });
     }
     if (turn === "b") {
-      return t("rest.next", { name: bExercise ? bExercise.name : "", n: rules.workingSets(bEntry.sets).length + 1 });
+      return t("rest.next", { name: bExercise ? bExercise.name : t("common.exercise.deleted"), n: rules.workingSets(bEntry.sets).length + 1 });
     }
     return nextSetLabel(bEntry, bItem, bExercise);
   }
 
   function nameCell(exercise, entry) {
     const name = el("div", "name");
-    name.appendChild(el("span", null, exercise ? exercise.name : entry.exerciseId));
+    name.appendChild(el("span", null, exercise ? exercise.name : t("common.exercise.deleted")));
     if (exercise?.variant) name.appendChild(el("span", "variant", ` ${exercise.variant}`));
     if (exercise?.emphasis) name.appendChild(el("span", "emphasis", ` · ${exercise.emphasis}`));
     return name;

@@ -208,6 +208,17 @@ export function dropChain(load, steps, drops = 2) {
   return chain;
 }
 
+// Warm-up default load (v1.1.1 polish item 5): 50% of the item's target
+// load, snapped down to the nearest available inventory step, clamped at the
+// smallest available step (never below it). Bodyweight/empty step lists
+// collapse to 0, same as a bodyweight working set always does.
+export function warmupDefaultLoad(targetLoad, steps) {
+  if (!Array.isArray(steps) || steps.length === 0) return 0;
+  const target = targetLoad * 0.5;
+  const snapped = snapDown(target, steps);
+  return snapped == null ? steps[0] : snapped;
+}
+
 // Percent change between the latest load and the closest entry >= windowDays
 // earlier. history: [{date, load}] in any order. Returns null when the
 // window has no comparison point.
@@ -357,4 +368,41 @@ export function weeklyCardioMinutes(sessions, weekKeyStr) {
     if (Number.isFinite(minutes)) total += minutes;
   }
   return total;
+}
+
+// ------------------------------------------------- trend selector (v1.1.1)
+//
+// Order priority: exercises appearing in the CURRENT weights programs first
+// (program list order, programs in store order, de-duplicated), then all
+// remaining logged exercises by recency (most-recent session first). Only
+// exercises with at least one weights-session entry are candidates at all,
+// same restriction the prior most-recent-use-only order used. Orphaned
+// exercise ids (no longer present in exercisesById, polish item 9) stay
+// candidates too, resolved to a { id, deleted: true } placeholder; the UI
+// layer is responsible for rendering a fallback name for it.
+export function orderTrendExercises(programs, sessions, exercisesById) {
+  const lastSeen = new Map();
+  for (const session of sessions || []) {
+    if (session.kind !== "weights") continue;
+    for (const entry of session.entries || []) {
+      const prev = lastSeen.get(entry.exerciseId);
+      if (!prev || session.date > prev) lastSeen.set(entry.exerciseId, session.date);
+    }
+  }
+  const resolve = (id) => exercisesById[id] || { id, deleted: true };
+  const used = new Set();
+  const ordered = [];
+  for (const program of programs || []) {
+    for (const item of program.items || []) {
+      const id = item.exerciseId;
+      if (used.has(id) || !lastSeen.has(id)) continue;
+      used.add(id);
+      ordered.push(resolve(id));
+    }
+  }
+  const remaining = [...lastSeen.entries()]
+    .filter(([id]) => !used.has(id))
+    .sort((a, b) => b[1].localeCompare(a[1]))
+    .map(([id]) => resolve(id));
+  return [...ordered, ...remaining];
 }

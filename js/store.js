@@ -214,6 +214,7 @@ function sanitizeExercise(e) {
 
 function sanitizeSet(s) {
   if (!s || typeof s !== "object") return null;
+  const holdSec = typeof s.holdSec === "number" && Number.isFinite(s.holdSec) && s.holdSec > 0 ? s.holdSec : null;
   return {
     weight: num(s.weight),
     reps: num(s.reps),
@@ -223,6 +224,9 @@ function sanitizeSet(s) {
     // working set at reduced load. Ignored by the nextLoad verdict, same as
     // warm-ups, but counted as a working set everywhere else (log, balance).
     drop: boolVal(s.drop),
+    // Hold time in seconds (v1.1.1 polish item 7): calisthenics quick-log
+    // "시간(초)" mode. Kept only when > 0, else null; reps stays 0 for these.
+    holdSec,
   };
 }
 

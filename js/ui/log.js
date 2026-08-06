@@ -80,6 +80,21 @@ function commonLoad(sets) {
   return best;
 }
 
+// Most frequent working-set hold duration (v1.1.1 polish item 7), mirrors
+// commonLoad's most-frequent-value logic for holdSec instead of weight.
+function commonHoldSec(sets) {
+  const counts = new Map();
+  let best = null;
+  let bestN = 0;
+  for (const s of sets) {
+    if (!(s.holdSec > 0)) continue;
+    const n = (counts.get(s.holdSec) || 0) + 1;
+    counts.set(s.holdSec, n);
+    if (n > bestN) { bestN = n; best = s.holdSec; }
+  }
+  return best;
+}
+
 function repsLabel(targetReps) {
   if (targetReps === "max") return t("common.max.reps");
   return targetReps == null ? "-" : String(targetReps);
@@ -263,8 +278,8 @@ export async function mount(root, ctx) {
         const ex = exById[entry.exerciseId];
         const item = itemForLog(session, entry.exerciseId);
         const line = el("div", "dl");
-        const name = el("span", "n", ex ? ex.name : entry.exerciseId);
-        let nameText = ex ? ex.name : entry.exerciseId;
+        const name = el("span", "n");
+        let nameText = ex ? ex.name : t("common.exercise.deleted");
         if (ex && ex.variant) nameText += ` (${ex.variant})`;
         if (ex && ex.emphasis) nameText += ` · ${ex.emphasis}`;
         name.textContent = nameText;
@@ -273,16 +288,29 @@ export async function mount(root, ctx) {
 
         const value = el("span", "v");
         const sets = workingSets(entry.sets).filter((s) => !s.drop);
-        const load = commonLoad(sets);
-        const parts = [];
-        // A1/A3 gap closed: this used to always show the exercise's stored
-        // unit; now it follows the global display-unit setting like Today.
-        if (load != null) parts.push(formatLoad(load, ex?.unit === "kg" ? "kg" : "lb", settings.displayUnit || "both"));
-        parts.push(`${sets.length}×${repsLabel(entry.targetReps)}`);
-        value.appendChild(el("span", null, parts.join(" ")));
-        for (const s of sets) {
-          if (!s.effort) continue; // unrated set: no dot rather than a neutral one
-          value.appendChild(el("span", `dot ${s.effort}`));
+        if (sets.length === 0) {
+          // Unperformed exercise (v1.1.1 polish item 1): the program listed
+          // it but no set was ever logged for this entry. No set dots, just
+          // the muted status text; the exercise name line above is unchanged.
+          value.appendChild(el("span", null, t("log.detail.notPerformed")));
+        } else if (sets.every((s) => s.holdSec > 0)) {
+          // Hold-time entry (v1.1.1 polish item 7): render the common hold
+          // duration ("45초") instead of a reps-based summary.
+          value.appendChild(el("span", null, t("today.set.hold", { n: commonHoldSec(sets) })));
+        } else {
+          const load = commonLoad(sets);
+          const parts = [];
+          // A1/A3 gap closed: this used to always show the exercise's stored
+          // unit; now it follows the global display-unit setting like Today.
+          if (load != null) parts.push(formatLoad(load, ex?.unit === "kg" ? "kg" : "lb", settings.displayUnit || "both"));
+          parts.push(`${sets.length}×${repsLabel(entry.targetReps)}`);
+          value.appendChild(el("span", null, parts.join(" ")));
+        }
+        if (sets.length > 0) {
+          for (const s of sets) {
+            if (!s.effort) continue; // unrated set: no dot rather than a neutral one
+            value.appendChild(el("span", `dot ${s.effort}`));
+          }
         }
         line.appendChild(value);
         detail.appendChild(line);
@@ -319,7 +347,11 @@ export async function mount(root, ctx) {
       }
       card.appendChild(row);
 
-      if (session.kind === "weights" || session.kind === "calisthenics") {
+      // v1.1.1 polish item 8: cardio sessions were excluded from this click
+      // handler entirely, so their delete link (built by sessionDetail below)
+      // was never reachable. entries is empty for cardio, so sessionDetail
+      // renders no exercise lines for it - just the delete link.
+      if (session.kind === "weights" || session.kind === "calisthenics" || session.kind === "cardio") {
         let detail = null;
         card.addEventListener("click", () => {
           if (!detail) {

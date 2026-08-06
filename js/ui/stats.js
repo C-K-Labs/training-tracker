@@ -9,6 +9,7 @@ import { getAll, getSettings, getGuests, getGuestData } from "../store.js";
 import {
   weekKey, weeklyBalance, emphasisBreakdown, overshootWarning, workingSets,
   kgToLb, proteinTargetG, proteinCoefDisplay, leanMassKg, weeklyCardioMinutes,
+  orderTrendExercises,
 } from "../rules.js";
 
 export const titleKey = "tab.stats";
@@ -71,7 +72,11 @@ function svgEl(tag, attrs) {
   return node;
 }
 
+// v1.1.1 polish item 9: orderTrendExercises resolves an orphaned exerciseId
+// to a { id, deleted: true } placeholder (no name/variant/unit); this is the
+// one place responsible for turning that into a rendered label.
 function exerciseLabel(ex) {
+  if (ex.deleted) return t("common.exercise.deleted");
   return ex.variant ? `${ex.name} ${ex.variant}` : ex.name;
 }
 
@@ -208,21 +213,14 @@ function weekTile(sessions) {
 
 // ------------------------------------------------------------------- trend
 
-// Exercises with at least one weights-session entry, most recent first.
-function trendExercises(sessions, exercisesById) {
-  const lastSeen = new Map();
-  for (const session of sessions) {
-    if (session.kind !== "weights") continue;
-    for (const entry of session.entries || []) {
-      if (!exercisesById[entry.exerciseId]) continue;
-      const prev = lastSeen.get(entry.exerciseId);
-      if (!prev || session.date > prev) lastSeen.set(entry.exerciseId, session.date);
-    }
-  }
-  return [...lastSeen.entries()]
-    .sort((a, b) => b[1].localeCompare(a[1]))
-    .slice(0, MAX_TREND_EXERCISES)
-    .map(([id]) => exercisesById[id]);
+// Exercises with at least one weights-session entry (v1.1.1 polish item 3):
+// exercises in the CURRENT weights programs first (program list order,
+// programs in store order, deduped), then all remaining logged exercises by
+// recency. Orphaned exerciseIds resolve to a { id, deleted: true }
+// placeholder via rules.orderTrendExercises; exerciseLabel renders it.
+function trendExercises(sessions, exercisesById, programs) {
+  const weightPrograms = (programs || []).filter((p) => p.kind === "weights");
+  return orderTrendExercises(weightPrograms, sessions, exercisesById).slice(0, MAX_TREND_EXERCISES);
 }
 
 // Top working load per session for one exercise, oldest first.
@@ -347,7 +345,9 @@ function renderTrendBody(host, sessions, exercise) {
   }
 
   const wrap = el("div", "chart-wrap");
-  wrap.appendChild(buildChart(history, exercise.unit));
+  // A deleted-exercise placeholder (item 9) carries no unit; default to lb
+  // the same way the rest of the app treats an unrecognized/missing unit.
+  wrap.appendChild(buildChart(history, exercise.unit === "kg" ? "kg" : "lb"));
   host.appendChild(wrap);
 
   const warn = overshootWarning(history);
@@ -359,11 +359,11 @@ function renderTrendBody(host, sessions, exercise) {
   }
 }
 
-function trendCard(sessions, exercisesById) {
+function trendCard(sessions, exercisesById, programs) {
   const card = el("div", "card");
   card.appendChild(el("h2", null, t("stats.trend.title")));
 
-  const list = trendExercises(sessions, exercisesById);
+  const list = trendExercises(sessions, exercisesById, programs);
   if (list.length === 0) {
     card.appendChild(el("div", "empty", t("stats.trend.none")));
     return card;
@@ -625,15 +625,16 @@ function balanceCard(sessions, exercisesById) {
 // Guest data never mixes into my aggregates; switching profiles just swaps
 // which (sessions, bodyweight, exercises) arrays this render function reads.
 export async function mount(root, ctx) {
-  const [sessions, bodyweight, exercises, settings, guests] = await Promise.all([
+  const [sessions, bodyweight, exercises, programs, settings, guests] = await Promise.all([
     getAll("sessions"),
     getAll("bodyweight"),
     getAll("exercises"),
+    getAll("programs"),
     getSettings(),
     getGuests(),
   ]);
 
-  const mine = { sessions, bodyweight, exercises, isGuest: false };
+  const mine = { sessions, bodyweight, exercises, programs, isGuest: false };
   let activeGuestId = null; // null = 내 기록 (mine)
 
   // Zero-size marker (never shown): .screen lays out its direct children in a
@@ -668,7 +669,10 @@ export async function mount(root, ctx) {
       const data = await getGuestData(id);
       // Deleted meanwhile (e.g. from settings in another tab): fall back to mine.
       if (!data) return mine;
-      return { sessions: data.sessions, bodyweight: data.bodyweight, exercises: data.exercises, isGuest: true };
+      return {
+        sessions: data.sessions, bodyweight: data.bodyweight, exercises: data.exercises,
+        programs: data.programs || [], isGuest: true,
+      };
     }
 
     async function switchProfile(id) {
@@ -707,7 +711,7 @@ export async function mount(root, ctx) {
     const analysis = analysisCard(data.bodyweight, settings);
     if (analysis) root.appendChild(analysis);
 
-    root.appendChild(trendCard(data.sessions, exercisesById));
+    root.appendChild(trendCard(data.sessions, exercisesById, data.programs));
     root.appendChild(cardioBandCard(data.sessions));
     root.appendChild(balanceCard(data.sessions, exercisesById));
   }
