@@ -449,6 +449,34 @@ button.chip { cursor: pointer; }
 }
 .restbar-actions { display: flex; gap: 6px; flex: none; }
 
+/* Install banner (v1.3.0): fixed bar above the tab bar, stacked on top of
+   the rest timer via --restbar-extra (0px when no countdown is running) so
+   the two never cover each other; z-index sits under both bars. */
+.install-banner {
+  position: fixed;
+  left: 50%; transform: translateX(-50%);
+  width: 100%; max-width: 430px;
+  bottom: calc(60px + max(10px, env(safe-area-inset-bottom)) + var(--restbar-extra, 0px));
+  z-index: 8;
+  display: flex; align-items: center; gap: 10px;
+  margin: 0 auto;
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+.install-banner-text {
+  flex: 1; min-width: 0;
+  font-size: 12px; color: var(--ink2);
+}
+.install-banner-actions { flex: none; display: flex; align-items: center; gap: 8px; }
+.install-banner .btn-primary {
+  width: auto;
+  padding: 7px 14px;
+  font-size: 13px;
+}
+
 /* Ghost chip variant: tappable action inside a chip-styled button. */
 .chip.ghost {
   border: 1px solid var(--line);

@@ -10,12 +10,14 @@
 // pack validation stays inside store.importPack.
 
 import { t, getLang, setLang, availableLangs } from "../i18n.js";
+import { APP_VERSION, CHANGELOG } from "../version.js";
 import {
   getSettings, saveSettings, getAll, put, del, newId, exportPack, importPack,
   importGuestPack, getGuests, deleteGuest,
 } from "../store.js";
 import * as rules from "../rules.js";
 import * as onboarding from "../onboarding.js";
+import { generateCode, normalizeCode, deriveFromCode, encryptPack, decryptBlob } from "../crypto.js";
 
 export const titleKey = "tab.settings";
 export const subKey = "screen.settings.sub";
@@ -185,7 +187,53 @@ export async function mount(root, ctx) {
   root.appendChild(programCard(state, ctx));
   root.appendChild(nutritionCard(state, ctx));
   root.appendChild(dataCard(state, ctx));
+  root.appendChild(feedbackCard(state, ctx));
   root.appendChild(displayCard(state, ctx));
+  root.appendChild(aboutCard(state, ctx));
+}
+
+// ------------------------------------------------------------------ about
+
+// Version and patch notes (v1.3.0). The same CHANGELOG the update notice
+// reads, kept reachable after that notice is closed. Notes ship in ko/en
+// only (js/version.js), so every non-Korean UI shows the English list under
+// its own localized labels.
+function aboutCard(state, ctx) {
+  const { card, list } = cardEl("settings.about.title");
+  const open = { key: null };
+
+  function render() {
+    list.textContent = "";
+    rowEl(list, open, "history", {
+      title: t("settings.about.history"),
+      desc: t("settings.about.history.desc"),
+      right: `v${APP_VERSION}`,
+      rerender: render,
+      editor: (box) => {
+        box.appendChild(el("div", "hint", t("settings.about.autoupdate")));
+        const noteLang = getLang() === "ko" ? "ko" : "en";
+        for (const entry of CHANGELOG) {
+          const head = flexBox("6px");
+          head.appendChild(el("strong", null, `v${entry.version}`));
+          head.appendChild(el("span", "hint", entry.date));
+          box.appendChild(head);
+
+          const notes = document.createElement("ul");
+          notes.style.margin = "0";
+          notes.style.paddingLeft = "18px";
+          notes.style.display = "flex";
+          notes.style.flexDirection = "column";
+          notes.style.gap = "4px";
+          notes.style.fontSize = "13px";
+          for (const note of entry.notes[noteLang] || []) notes.appendChild(el("li", null, note));
+          box.appendChild(notes);
+        }
+      },
+    });
+  }
+
+  render();
+  return card;
 }
 
 // -------------------------------------------------------------- inventory
@@ -940,6 +988,17 @@ function libraryEditor(box, state, ctx, render) {
 
 // ------------------------------------------------------------------- data
 
+// Cloud backup (v1.3.0). The sync code is generated on this device, stretched
+// into an AES-GCM key plus a storage slot id by js/crypto.js, and never
+// leaves the device: only the slot id and the ciphertext reach the Worker.
+// The code is kept in settings.cloudBackup, which exportPack deliberately
+// does NOT include, so a shared pack can never carry someone's backup code.
+const CLOUD_ENDPOINT = "https://training-tracker-api.ck-labs.workers.dev/backup";
+
+function cloudErrKey(res) {
+  return res && res.status === 429 ? "settings.data.cloud.err.rate" : "settings.data.cloud.err";
+}
+
 function dataCard(state, ctx) {
   const { card, list } = cardEl("settings.data.title");
   const open = { key: null };
@@ -948,10 +1007,18 @@ function dataCard(state, ctx) {
     list.textContent = "";
     const addRow = (key, opts) => rowEl(list, open, key, { ...opts, rerender: render });
 
-    addRow("import", {
-      title: t("settings.data.import"),
-      desc: t("settings.data.import.desc"),
-      editor: (box) => importEditor(box, ctx),
+    const cloud = state.settings.cloudBackup;
+    addRow("cloud", {
+      title: t("settings.data.cloud"),
+      desc: t("settings.data.cloud.desc"),
+      right: cloud ? isoDate(new Date(cloud.lastAt)) : t("settings.data.cloud.never"),
+      editor: (box) => cloudEditor(box, state, ctx, render),
+    });
+
+    addRow("restore", {
+      title: t("settings.data.restore"),
+      desc: t("settings.data.restore.desc"),
+      editor: (box) => restoreEditor(box, state, ctx),
     });
 
     addRow("profiles", {
@@ -960,34 +1027,298 @@ function dataCard(state, ctx) {
       editor: (box) => profilesEditor(box, state, ctx, render),
     });
 
-    const last = state.settings.lastBackupAt;
-    rowEl(list, open, "export", {
-      title: t("settings.data.export"),
-      desc: last
-        ? t("settings.data.export.desc", { date: isoDate(new Date(last)) })
-        : t("settings.data.export.never"),
-      rerender: render,
-      onTap: async () => {
-        const pack = await exportPack();
-        const blob = new Blob([JSON.stringify(pack, null, 2)], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const a = el("a");
-        a.href = url;
-        a.download = `training-export-${isoDate(new Date())}.json`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        // Revoking synchronously can cancel the download in some browsers.
-        setTimeout(() => URL.revokeObjectURL(url), 0);
-        state.settings.lastBackupAt = new Date().toISOString();
-        await commitSettings(state, ctx);
-        render();
-      },
+    addRow("file", {
+      title: t("settings.data.file"),
+      desc: t("settings.data.file.desc"),
+      editor: (box) => fileEditor(box, state, ctx, render),
     });
   }
 
   render();
   return card;
+}
+
+function cloudEditor(box, state, ctx, render) {
+  const cloud = state.settings.cloudBackup;
+
+  if (!cloud) {
+    // Nothing is uploaded until the user reads this and taps: the consent
+    // line states what leaves the device and how long the server keeps it.
+    box.appendChild(el("div", "hint", t("settings.data.cloud.consent")));
+    const start = el("button", "btn-primary", t("settings.data.cloud.start"));
+    start.type = "button";
+    start.addEventListener("click", async () => {
+      start.disabled = true;
+      start.textContent = t("settings.data.cloud.working");
+      try {
+        const code = generateCode();
+        const { slotId, blob } = await encryptPack(await exportPack(), code);
+        const res = await fetch(CLOUD_ENDPOINT, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ slot: slotId, blob }),
+        });
+        if (res.ok) {
+          state.settings.cloudBackup = { code, lastAt: new Date().toISOString() };
+          await commitSettings(state, ctx, { silent: true });
+          ctx.showToast(t("settings.data.cloud.ok"));
+          // Rerender straight into the connected state so the code is on
+          // screen for the user to write down.
+          render();
+          return;
+        }
+        ctx.showToast(t(cloudErrKey(res)));
+      } catch {
+        ctx.showToast(t("settings.data.cloud.err"));
+      }
+      start.textContent = t("settings.data.cloud.start");
+      start.disabled = false;
+    });
+    box.appendChild(start);
+    return;
+  }
+
+  box.appendChild(el("div", "hint", t("settings.data.cloud.last", {
+    date: isoDate(new Date(cloud.lastAt)),
+  })));
+
+  const codeText = el("div", null, cloud.code);
+  codeText.style.fontFamily = "monospace";
+  codeText.style.fontSize = "20px";
+  codeText.style.letterSpacing = "2px";
+  box.appendChild(fieldEl(t("settings.data.cloud.code.label"), codeText));
+  box.appendChild(el("div", "hint", t("settings.data.cloud.code.keep")));
+
+  const actions = flexBox("8px");
+
+  const copy = el("button", "btn-secondary", t("settings.data.cloud.copy"));
+  copy.type = "button";
+  copy.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(cloud.code);
+      ctx.showToast(t("settings.data.cloud.copied"));
+    } catch {
+      // Clipboard API missing or blocked (insecure context, denied
+      // permission): select the code so it can be copied by hand.
+      const selection = window.getSelection ? window.getSelection() : null;
+      if (selection && document.createRange) {
+        const range = document.createRange();
+        range.selectNodeContents(codeText);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      } else {
+        ctx.showToast(t("settings.data.cloud.err"));
+      }
+    }
+  });
+  actions.appendChild(copy);
+
+  const now = el("button", "btn-primary", t("settings.data.cloud.now"));
+  now.type = "button";
+  now.addEventListener("click", async () => {
+    now.disabled = true;
+    now.textContent = t("settings.data.cloud.working");
+    try {
+      // Same code, same slot: a backup overwrites the previous one.
+      const { slotId, blob } = await encryptPack(await exportPack(), cloud.code);
+      const res = await fetch(CLOUD_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slot: slotId, blob }),
+      });
+      if (res.ok) {
+        state.settings.cloudBackup = { code: cloud.code, lastAt: new Date().toISOString() };
+        await commitSettings(state, ctx, { silent: true });
+        ctx.showToast(t("settings.data.cloud.ok"));
+        render();
+        return;
+      }
+      ctx.showToast(t(cloudErrKey(res)));
+    } catch {
+      ctx.showToast(t("settings.data.cloud.err"));
+    }
+    now.textContent = t("settings.data.cloud.now");
+    now.disabled = false;
+  });
+  actions.appendChild(now);
+
+  const remove = el("button", "link", t("settings.data.cloud.delete"));
+  remove.type = "button";
+  remove.addEventListener("click", async () => {
+    if (!confirm(t("settings.data.cloud.delete.confirm"))) return;
+    remove.disabled = true;
+    remove.textContent = t("settings.data.cloud.working");
+    try {
+      const { slotId } = await deriveFromCode(cloud.code);
+      const res = await fetch(`${CLOUD_ENDPOINT}?slot=${slotId}`, { method: "DELETE" });
+      if (res.ok) {
+        // Only the server copy goes; this device keeps every record.
+        delete state.settings.cloudBackup;
+        await commitSettings(state, ctx, { silent: true });
+        ctx.showToast(t("settings.data.cloud.deleted"));
+        render();
+        return;
+      }
+      ctx.showToast(t(cloudErrKey(res)));
+    } catch {
+      ctx.showToast(t("settings.data.cloud.err"));
+    }
+    remove.textContent = t("settings.data.cloud.delete");
+    remove.disabled = false;
+  });
+  actions.appendChild(remove);
+
+  box.appendChild(actions);
+}
+
+// Restore from another device: the typed code derives the slot, so a wrong
+// code simply addresses a slot that does not exist (404) rather than
+// fetching someone else's blob.
+function restoreEditor(box, state, ctx) {
+  const codeInput = inputEl("text", "", {
+    placeholder: t("settings.data.restore.code.ph"),
+    autocapitalize: "characters",
+    autocomplete: "off",
+    spellcheck: "false",
+  });
+  box.appendChild(fieldEl(t("settings.data.cloud.code.label"), codeInput));
+
+  let mode = "merge";
+  const seg = el("div", "seg");
+  const buttons = [];
+  for (const [value, key] of [
+    ["replace", "settings.data.import.replace"],
+    ["merge", "settings.data.import.merge"],
+  ]) {
+    const button = el("button", value === mode ? "sel" : null, t(key));
+    button.type = "button";
+    button.addEventListener("click", () => {
+      mode = value;
+      for (const b of buttons) b.el.classList.toggle("sel", b.value === mode);
+    });
+    buttons.push({ value, el: button });
+    seg.appendChild(button);
+  }
+  box.appendChild(seg);
+
+  const run = el("button", "btn-primary", t("settings.data.restore.run"));
+  run.type = "button";
+  run.addEventListener("click", async () => {
+    const canonical = normalizeCode(codeInput.value);
+    if (!canonical) {
+      ctx.showToast(t("settings.data.restore.badcode"));
+      return;
+    }
+    if (mode === "replace" && !confirm(t("settings.data.import.replace.confirm"))) return;
+    run.disabled = true;
+    run.textContent = t("settings.data.cloud.working");
+    try {
+      const { slotId } = await deriveFromCode(canonical);
+      const res = await fetch(`${CLOUD_ENDPOINT}?slot=${slotId}`);
+      if (res.status === 404) {
+        ctx.showToast(t("settings.data.restore.notfound"));
+      } else if (!res.ok) {
+        ctx.showToast(t(cloudErrKey(res)));
+      } else {
+        const body = await res.json();
+        let pack = null;
+        try {
+          pack = await decryptBlob(body.blob, canonical);
+        } catch {
+          // Tampered or unreadable blob: same message as a missing backup,
+          // because from the user's side the code is what went wrong.
+          ctx.showToast(t("settings.data.restore.notfound"));
+        }
+        if (pack) {
+          const counts = await importPack(pack, mode);
+          ctx.showToast(t("settings.data.import.ok", {
+            e: counts.exercises, p: counts.programs, s: counts.sessions,
+          }));
+          // This device now shares the backup: adopt the code so the cloud
+          // row can back up here too, without a second setup.
+          state.settings.cloudBackup = { code: canonical, lastAt: body.updatedAt };
+          await commitSettings(state, ctx, { silent: true });
+          await ctx.remount();
+          return;
+        }
+      }
+    } catch {
+      ctx.showToast(t("settings.data.cloud.err"));
+    }
+    run.textContent = t("settings.data.restore.run");
+    run.disabled = false;
+  });
+  box.appendChild(run);
+}
+
+// File backup (advanced): export and import in one editor. The .ttpack
+// extension is plain pack JSON under a name iOS will not try to preview,
+// and the share sheet is the only way to get a file off iOS Safari.
+function fileEditor(box, state, ctx, render) {
+  const exportBtn = el("button", "btn-primary", t("settings.data.file.export"));
+  exportBtn.type = "button";
+  exportBtn.addEventListener("click", () => runFileExport(state, ctx, render));
+  box.appendChild(exportBtn);
+
+  const last = state.settings.lastBackupAt;
+  if (last) {
+    box.appendChild(el("div", "hint", t("settings.data.export.desc", {
+      date: isoDate(new Date(last)),
+    })));
+  }
+
+  importEditor(box, ctx);
+}
+
+function downloadPack(text, fileName) {
+  const blob = new Blob([text], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = el("a");
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // Revoking synchronously can cancel the download in some browsers.
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+async function runFileExport(state, ctx, render) {
+  const pack = await exportPack();
+  const text = JSON.stringify(pack, null, 2);
+  const fileName = `training-tracker-${isoDate(new Date())}.ttpack`;
+
+  let shared = false;
+  // Share sheet only on touch-primary devices (iOS/Android, where a download
+  // is awkward or impossible); desktop keeps the plain download.
+  const touchPrimary = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+  if (touchPrimary && typeof navigator.canShare === "function" && typeof File === "function") {
+    const file = new File([text], fileName, { type: "application/octet-stream" });
+    if (navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file] });
+        shared = true;
+      } catch (err) {
+        // Dismissing the share sheet is a choice, not a failure: leave the
+        // last-backup date alone and say nothing.
+        if (err && err.name === "AbortError") return;
+        // Any other share failure falls through to the download path below.
+      }
+    }
+  }
+
+  if (!shared) {
+    try {
+      downloadPack(text, fileName);
+    } catch {
+      ctx.showToast(t("settings.data.file.share.err"));
+      return;
+    }
+  }
+
+  state.settings.lastBackupAt = new Date().toISOString();
+  await commitSettings(state, ctx);
+  render();
 }
 
 // Strips a file's extension for the default guest name, e.g.
@@ -997,7 +1328,7 @@ function baseName(fileName) {
 }
 
 function importEditor(box, ctx) {
-  const file = inputEl("file", null, { accept: "application/json,.json" });
+  const file = inputEl("file", null, { accept: ".ttpack,.json,application/json" });
   box.appendChild(fieldEl(t("settings.data.import"), file));
 
   // Guest mode (D1): a third option alongside 전체 교체/병합. The pack is
@@ -1281,4 +1612,113 @@ function nutritionCard(state, ctx) {
 
   render();
   return card;
+}
+
+// -------------------------------------------------------------- feedback
+
+// Bug reports and suggestions (v1.3.0). No login: the message is POSTed to a
+// Cloudflare Worker that files it for the developer. The message text is the
+// user's own input and never touches innerHTML; only the three fields plus a
+// small meta block (version / language / user agent / screen) are sent, and
+// the hint under the form says so before anything leaves the device.
+const FEEDBACK_ENDPOINT = "https://training-tracker-api.ck-labs.workers.dev/feedback";
+
+function feedbackCard(state, ctx) {
+  const { card, list } = cardEl("settings.feedback.title");
+  const open = { key: null };
+
+  function render() {
+    list.textContent = "";
+    const addRow = (key, opts) => rowEl(list, open, key, { ...opts, rerender: render });
+
+    addRow("send", {
+      title: t("settings.feedback.send"),
+      desc: t("settings.feedback.send.desc"),
+      editor: (box) => feedbackEditor(box, ctx, open, render),
+    });
+  }
+
+  render();
+  return card;
+}
+
+function feedbackEditor(box, ctx, open, render) {
+  let type = "suggestion";
+  const seg = el("div", "seg");
+  const buttons = [];
+  for (const [value, key] of [
+    ["bug", "settings.feedback.type.bug"],
+    ["suggestion", "settings.feedback.type.suggestion"],
+    ["other", "settings.feedback.type.other"],
+  ]) {
+    const button = el("button", value === type ? "sel" : null, t(key));
+    button.type = "button";
+    button.addEventListener("click", () => {
+      type = value;
+      for (const b of buttons) b.el.classList.toggle("sel", b.value === type);
+    });
+    buttons.push({ value, el: button });
+    seg.appendChild(button);
+  }
+  box.appendChild(fieldEl(t("settings.feedback.type"), seg));
+
+  // Same growing textarea idiom as the session note on the today screen.
+  const message = document.createElement("textarea");
+  message.rows = 4;
+  message.placeholder = t("settings.feedback.message.ph");
+  message.addEventListener("input", () => {
+    message.style.height = "auto";
+    message.style.height = `${message.scrollHeight + 2}px`;
+    send.disabled = message.value.trim() === "";
+  });
+  box.appendChild(fieldEl(t("settings.feedback.message"), message));
+
+  const contact = inputEl("text", "", { placeholder: t("settings.feedback.contact.ph") });
+  box.appendChild(fieldEl(t("settings.feedback.contact"), contact));
+
+  box.appendChild(el("div", "hint", t("settings.feedback.privacy.hint")));
+
+  const send = el("button", "btn-primary", t("settings.feedback.submit"));
+  send.type = "button";
+  send.disabled = true;
+  send.addEventListener("click", async () => {
+    const text = message.value.trim();
+    if (text === "") return;
+    send.disabled = true;
+    send.textContent = t("settings.feedback.sending");
+    try {
+      const res = await fetch(FEEDBACK_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type,
+          message: text,
+          contact: contact.value.trim(),
+          meta: {
+            version: APP_VERSION,
+            lang: getLang(),
+            ua: navigator.userAgent.slice(0, 300),
+            screen: "settings",
+          },
+        }),
+      });
+      if (res.ok) {
+        ctx.showToast(t("settings.feedback.ok"));
+        message.value = "";
+        contact.value = "";
+        type = "suggestion";
+        open.key = null;
+        render();
+        return;
+      }
+      // Anything non-2xx keeps the typed text so nothing the user wrote is lost.
+      ctx.showToast(t(res.status === 429 ? "settings.feedback.err.rate" : "settings.feedback.err"));
+    } catch {
+      // Offline or a blocked request: same rule, the text stays put.
+      ctx.showToast(t("settings.feedback.err"));
+    }
+    send.textContent = t("settings.feedback.submit");
+    send.disabled = message.value.trim() === "";
+  });
+  box.appendChild(send);
 }

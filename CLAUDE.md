@@ -11,8 +11,10 @@
   server for service-worker testing (e.g. python -m http.server).
 
 ## Test
-- node --test tests/rules.test.mjs
-  (run from the project root; covers the pure rule engine in js/rules.js)
+- node --test tests/rules.test.mjs tests/gen.test.mjs tests/i18n.test.mjs tests/crypto.test.mjs
+  (run from the project root; covers the rule engine, course generator,
+  i18n dictionary parity across all six languages, and the cloud-backup
+  crypto module)
 
 ## Data Conventions (from training-program-reference.md)
 - Smith machine and barbell loads EXCLUDE the bar weight.
