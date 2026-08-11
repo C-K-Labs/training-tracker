@@ -32,6 +32,14 @@ function cardioActivityLabel(activity) {
   return activity || t("today.cardio.activity.custom");
 }
 
+// Same slug handling as Today's daily-check chip: known slugs translate,
+// legacy keys (pre-item-6 Korean literals) render raw.
+const PAIN_AREA_SLUGS = ["knee", "lowback", "shoulder", "elbow", "wrist"];
+
+function painAreaLabel(slug) {
+  return PAIN_AREA_SLUGS.includes(slug) ? t(`pain.area.${slug}`) : slug;
+}
+
 function el(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -274,6 +282,17 @@ export async function mount(root, ctx) {
 
     function sessionDetail(session) {
       const detail = el("div", "log-detail");
+      // Daily check summary + memo, previously stored but never shown here.
+      const daily = session.daily || {};
+      const dailyParts = [];
+      if (daily.sleepH != null) dailyParts.push(t("today.daily.sleep", { h: daily.sleepH }));
+      if (daily.condition != null) dailyParts.push(t("today.daily.condition", { v: daily.condition }));
+      for (const [area, v] of Object.entries(daily.pain || {})) {
+        if (v > 0) dailyParts.push(t("today.daily.pain", { area: painAreaLabel(area), v }));
+      }
+      if (daily.heat) dailyParts.push(t("today.daily.heat"));
+      if (dailyParts.length > 0) detail.appendChild(el("div", "daily", dailyParts.join(" · ")));
+      if (daily.note) detail.appendChild(el("div", "daily note", daily.note));
       for (const entry of session.entries || []) {
         const ex = exById[entry.exerciseId];
         const item = itemForLog(session, entry.exerciseId);
