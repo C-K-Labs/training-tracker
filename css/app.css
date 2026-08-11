@@ -356,6 +356,10 @@ button.chip { cursor: pointer; }
 .field label { font-size: 12px; font-weight: 600; color: var(--ink2); }
 .field input, .field select, .field textarea {
   font: inherit;
+  /* 16px minimum: anything smaller makes iOS Safari auto-zoom the page the
+     moment the field is focused. Duplicated from the global rule below
+     because this selector outranks it and `font: inherit` resets the size. */
+  font-size: 16px;
   color: var(--ink);
   background: var(--surface);
   border: 1px solid var(--line);
@@ -363,6 +367,13 @@ button.chip { cursor: pointer; }
   padding: 9px 11px;
 }
 .field input:focus, .field select:focus, .field textarea:focus { outline: 2px solid var(--accent); outline-offset: 0; border-color: transparent; }
+
+/* iOS zoom triggers, killed at the source while pinch zoom stays available:
+   sub-16px fields cause focus auto-zoom (covers inputs outside .field, e.g.
+   the log set editor and the onboarding code field), and rapid taps on
+   buttons register as double-tap zoom without touch-action: manipulation. */
+input, select, textarea { font-size: 16px; }
+button, input, select, textarea { touch-action: manipulation; }
 
 /* Empty state */
 .empty {

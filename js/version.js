@@ -4,9 +4,23 @@
 // Newest entry first. The service worker cache version is bumped separately
 // in sw.js at each deploy.
 
-export const APP_VERSION = "1.3.1";
+export const APP_VERSION = "1.3.2";
 
 export const CHANGELOG = [
+  {
+    version: "1.3.2",
+    date: "2026-08-11",
+    notes: {
+      ko: [
+        "입력할 때 화면이 저절로 확대되던 문제 해결 (두 손가락 확대는 그대로 사용 가능)",
+        "버튼 연타 시 더블 탭 확대로 오인되던 문제 해결",
+      ],
+      en: [
+        "Typing no longer auto-zooms the screen (pinch zoom still works)",
+        "Fast button taps are no longer mistaken for double-tap zoom",
+      ],
+    },
+  },
   {
     version: "1.3.1",
     date: "2026-08-11",
