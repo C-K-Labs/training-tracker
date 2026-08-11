@@ -3,6 +3,42 @@
 Single source of truth for project status and what comes next. Update this
 file at the end of every working session.
 
+## Status (2026-08-11, v1.3.0)
+
+v1.3.0 deployed and live-verified (commits 92d6ff6 + d88a9dc, sw v16), on
+top of the v1.1.2 (ja/zh, 6 languages) and v1.2.0 (warm-up ramp, tier rest
+defaults, out-of-order flow) releases earlier the same week. Theme: user
+communication + data portability, after deciding AGAINST store publication
+(fees; PWA link distribution covers both platforms).
+
+- Backend: Cloudflare Worker (worker/, deployed at
+  training-tracker-api.ck-labs.workers.dev, account subdomain ck-labs).
+  /feedback files issues into the PRIVATE repo C-K-Labs/training-tracker-
+  feedback (read them with `gh issue list` there; that is the user-feedback
+  inbox for bugfix work). /backup stores opaque encrypted blobs only.
+  GitHub fine-grained token (Issues RW on that repo only, expires
+  2027-08-11 - RENEW BEFORE THEN) lives in wrangler secrets. Free plan:
+  hard caps, no billing risk.
+- In-app feedback form (settings): type + message + optional contact, no
+  login, rate-limited, honeypot server-side.
+- E2EE cloud backup: device-generated sync code -> PBKDF2 310k -> AES-GCM
+  key + 128-bit slot id (js/crypto.js); server cannot read backups; slots
+  expire 180 days after last write; restore adopts the code on the second
+  device. File backup now .ttpack (same JSON inside; imports .ttpack+.json),
+  iOS share sheet on touch devices, advanced row.
+- Install banner (iOS instructions / Android+desktop real install prompt,
+  standalone-suppressed, dismissal persisted) + per-version update notice +
+  settings about card with full ko/en changelog (js/version.js is the
+  single source of version truth; bump APP_VERSION + CHANGELOG + sw cache
+  each release so users get the notice).
+- Verification: 89 node tests (new: i18n 6-language parity guard, crypto
+  roundtrip/tamper); three delegated UI builds each browser-verified; live
+  prod pass after deploy (update notice, install banner with real
+  beforeinstallprompt, cloud backup roundtrip + delete from the real
+  origin, 0 console errors). Security: change-scoped review of the Worker
+  (2 Medium + 4 Low found, all fixed same day incl. the E2EE redesign;
+  baseline in the skillset home reports\).
+
 ## Status (2026-08-06)
 
 v1.1.1 polish batch complete and deployed on top of v1.1:
@@ -109,12 +145,28 @@ v1 complete and deployed.
 6. Before promoting the app publicly (not needed for personal use): run the
    web-launch playbook (dependency-audit, security-check-stack,
    launch-check) and polish the README.
-7. Later: Capacitor wrap if a store app is ever wanted; export reminder
-   nudge when lastBackupAt is stale.
+7. ~~Later: Capacitor wrap if a store app is ever wanted~~ DECIDED
+   2026-08-11: no store publication (Play $25 + 12-tester gate, Apple
+   $99/yr + 4.2 risk); PWA link distribution instead. Revisit only if
+   real user demand appears through the feedback inbox.
+8. v1.4 candidates (from the 2026-08-11 store/watch discussion): web push
+   via the Worker (rest-timer alerts -> phone notification mirrored to
+   watches incl. the user's Suunto Run); body-composition trend smoothing
+   (moving average) as the accuracy play; Android-only Web Bluetooth HR.
+   SuuntoPlus sports apps are open to all devs since 2026-03 but Suunto
+   Run support is unconfirmed-likely-no (user was to check the SuuntoPlus
+   Store in their Suunto app). Native v2 door (watch session UI, HealthKit)
+   stays closed by decision.
+9. Operational: GitHub token for the feedback Worker expires 2027-08-11;
+   regenerate and `wrangler secret put GITHUB_TOKEN` before then.
 
 ## How to resume a session
 
-- Tests: `node --test tests/rules.test.mjs` (run from project root).
+- Tests: `node --test tests/rules.test.mjs tests/gen.test.mjs
+  tests/i18n.test.mjs tests/crypto.test.mjs` (run from project root).
+- User feedback inbox: `gh issue list --repo C-K-Labs/training-tracker-feedback`
+- Worker deploy: `npx wrangler deploy` in worker\ (only when the Worker
+  itself changes; app deploys never require it).
 - Local run: `py -m http.server` in the project root, open localhost.
 - Deploy: commit to master, `git push` (Pages rebuilds automatically).
 - Data model and rules: js/store.js (schemas + sanitizers), js/rules.js
