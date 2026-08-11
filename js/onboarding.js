@@ -7,7 +7,7 @@
 // Date.now() is intentionally only ever called from THIS file (never inside
 // js/gen.js) to build the idPrefix, keeping the generator itself pure.
 
-import { t } from "./i18n.js";
+import { t, getLang, setLang, availableLangs } from "./i18n.js";
 import { getAll, bulkPut, put, getSettings, saveSettings, importPack } from "./store.js";
 import { generateCourse, volumeReport } from "./gen.js";
 
@@ -84,6 +84,14 @@ async function markOnboarded() {
   await put("kv", { key: "onboarded", done: true });
 }
 
+// Best-guess UI language from the browser locale, falling back to whatever
+// is already active (the stored default) when the locale isn't supported.
+function detectLang() {
+  const nav = (typeof navigator !== "undefined" && navigator.language) || "";
+  const short = nav.toLowerCase().split("-")[0];
+  return availableLangs().includes(short) ? short : getLang();
+}
+
 // mount(root, ctx, opts):
 //   opts.skipDataStep - true when launched from Settings (data already
 //   exists, so the import-or-fresh branch is meaningless there).
@@ -99,8 +107,13 @@ export async function mount(root, ctx, opts = {}) {
   overlay.setAttribute("aria-modal", "true");
   root.appendChild(overlay);
 
+  // First-run only: the wizard opens on a language step (-1), pre-applying
+  // the browser locale so the step itself already reads in the likely
+  // language. The choice is persisted to settings on pick.
+  if (!skipDataStep) setLang(detectLang());
+
   const state = {
-    step: skipDataStep ? 1 : 0,
+    step: skipDataStep ? 1 : -1,
     goal: null,
     days: 3,
     experience: null,
@@ -116,6 +129,30 @@ export async function mount(root, ctx, opts = {}) {
   function goTo(step) {
     state.step = step;
     render();
+  }
+
+  // -------------------------------------------------------------- step -1
+
+  function renderLangStep(inner) {
+    inner.appendChild(header("onboarding.lang.title"));
+    const list = el("div", "goalopt-list");
+    for (const code of availableLangs()) {
+      list.appendChild(optionCard(
+        t(`lang.${code}`),
+        null,
+        getLang() === code,
+        async () => {
+          setLang(code);
+          const settings = await getSettings();
+          settings.language = code;
+          await saveSettings(settings);
+          document.title = t("app.title");
+          ctx.refreshTabLabels();
+          goTo(0);
+        },
+      ));
+    }
+    inner.appendChild(list);
   }
 
   // -------------------------------------------------------------- step 0
@@ -140,6 +177,8 @@ export async function mount(root, ctx, opts = {}) {
       choiceBox.remove();
       inner.appendChild(renderImportForm());
     });
+
+    inner.appendChild(backLink(() => goTo(-1)));
   }
 
   function renderImportForm() {
@@ -350,6 +389,7 @@ export async function mount(root, ctx, opts = {}) {
     }
 
     switch (state.step) {
+      case -1: renderLangStep(inner); break;
       case 0: renderDataStep(inner); break;
       case 1: renderGoalStep(inner); break;
       case 2: renderDaysStep(inner); break;

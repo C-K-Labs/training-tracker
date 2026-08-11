@@ -1079,6 +1079,7 @@ function displayCard(state, ctx) {
             setLang(code);
             state.settings.language = code;
             await commitSettings(state, ctx);
+            document.title = t("app.title");
             ctx.refreshTabLabels();
             await ctx.remount();
           });

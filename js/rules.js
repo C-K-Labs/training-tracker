@@ -314,6 +314,28 @@ export function restSecondsFor(exerciseId, settings) {
   return settings?.restDefaultSec ?? 90;
 }
 
+// Estimated session length in minutes for a program, from its items and the
+// user's rest settings. Per working set: execution (3s per rep, clamped to
+// 20-60s; "max"/hold-style targets count as 40s) plus the exercise's rest.
+// Warm-up sets execute faster (25s) and rest at most 60s. Each exercise adds
+// 75s of setup/transition. This is a planning estimate, not a stopwatch.
+export function estimateSessionMinutes(program, settings) {
+  let totalSec = 0;
+  for (const item of program?.items || []) {
+    const reps = item.reps;
+    const execSec = typeof reps === "number" && Number.isFinite(reps)
+      ? Math.min(60, Math.max(20, reps * 3))
+      : 40;
+    const rest = restSecondsFor(item.exerciseId, settings);
+    const workSets = item.sets || 0;
+    const warmups = item.warmupSets || 0;
+    totalSec += workSets * (execSec + rest);
+    totalSec += warmups * (25 + Math.min(60, rest));
+    totalSec += 75;
+  }
+  return Math.round(totalSec / 60);
+}
+
 // ---------------------------------------------- cardio / body comp (v1.1, B)
 
 function round1(v) {

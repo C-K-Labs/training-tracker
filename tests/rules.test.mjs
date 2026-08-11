@@ -7,6 +7,7 @@ import {
   weekKey, weeklyBalance, emphasisBreakdown,
   monthlyProgressPct, overshootWarning,
   KG_PER_LB, lbToKg, kgToLb, formatLoad, parseLoadInput, restSecondsFor,
+  estimateSessionMinutes,
   proteinTargetG, proteinCoefDisplay, bodyweightDisplay, leanMassKg,
   paceText, weeklyCardioMinutes,
   pyramidPlan, dropChain,
@@ -415,4 +416,27 @@ test("weeklyBalance: a holdSec set (reps 0) still counts as a working set", () =
   const totals = weeklyBalance(sessions, exercises, "2026-08-03");
   assert.deepEqual(totals, { shoulders: 2 });
   assert.equal(workingSets(sessions[0].entries[0].sets).length, 2);
+});
+
+test("estimateSessionMinutes: sums exec + rest per working set, warm-ups, and setup time", () => {
+  // One exercise: 3 sets x 8 reps (24s exec, clamp floor -> 24s? no: 8*3=24 < 20? no, 24s)
+  // exec = 24s, rest = 90s default -> 3*(24+90) = 342s, no warmups, +75s setup = 417s -> 7 min
+  const program = { items: [{ exerciseId: "a", sets: 3, reps: 8, warmupSets: 0 }] };
+  assert.equal(estimateSessionMinutes(program, {}), 7);
+});
+
+test("estimateSessionMinutes: 'max' reps count as 40s and warm-ups add short cycles", () => {
+  // exec = 40s ("max"), rest = 90 -> 3*130 = 390s; 2 warmups * (25 + 60) = 170s; +75s = 635s -> 11 min
+  const program = { items: [{ exerciseId: "a", sets: 3, reps: "max", warmupSets: 2 }] };
+  assert.equal(estimateSessionMinutes(program, {}), 11);
+});
+
+test("estimateSessionMinutes: respects per-exercise rest overrides and clamps exec time", () => {
+  // 15 reps -> 45s exec; override rest 60 -> 3*(45+60) = 315s + 75 = 390s -> 7 min (6.5 rounds up)
+  const settings = { restDefaultSec: 90, restOverrides: { hi: 60 } };
+  const program = { items: [{ exerciseId: "hi", sets: 3, reps: 15, warmupSets: 0 }] };
+  assert.equal(estimateSessionMinutes(program, settings), 7);
+  // Empty / missing items -> 0
+  assert.equal(estimateSessionMinutes({ items: [] }, settings), 0);
+  assert.equal(estimateSessionMinutes(null, settings), 0);
 });

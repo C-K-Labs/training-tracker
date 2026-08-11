@@ -301,6 +301,14 @@ function renderStartCard(ctx, settings, programs) {
   }
 
   let selected = weightPrograms[0];
+  const estimateEl = el("div", null);
+  estimateEl.style.color = "var(--ink2)";
+  estimateEl.style.fontSize = "13px";
+  const showEstimate = () => {
+    estimateEl.textContent = t("today.start.estimate", {
+      n: rules.estimateSessionMinutes(selected, settings),
+    });
+  };
   const row = el("div", "filter-row");
   for (const program of weightPrograms) {
     const chip = el("button", "filter", program.name);
@@ -310,10 +318,14 @@ function renderStartCard(ctx, settings, programs) {
       selected = program;
       for (const other of row.children) other.classList.remove("sel");
       chip.classList.add("sel");
+      showEstimate();
     });
     row.appendChild(chip);
   }
   card.appendChild(row);
+  showEstimate();
+  estimateEl.style.marginTop = "8px";
+  card.appendChild(estimateEl);
 
   const start = el("button", "btn-primary", t("today.start.button"));
   start.type = "button";
