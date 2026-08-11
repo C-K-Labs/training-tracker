@@ -13,7 +13,7 @@
 // whenever a guest is active.
 
 import { t } from "../i18n.js";
-import { getAll, del, getSettings, getGuests, getGuestData } from "../store.js";
+import { getAll, del, put, getSettings, getGuests, getGuestData } from "../store.js";
 import { workingSets, paceText, formatLoad } from "../rules.js";
 
 export const titleKey = "tab.log";
@@ -168,6 +168,14 @@ export async function mount(root, ctx) {
     })));
   }
 
+  // Card title + summary line, rebuilt in place after an edit so the sets /
+  // minutes counts on the collapsed row follow the saved data (v1.3.1).
+  function rebuildBody(body, session) {
+    body.textContent = "";
+    body.appendChild(el("div", "t", session.programName || t(`kind.${session.kind}`)));
+    sessionMeta(body, session);
+  }
+
   // Profile switcher (D1): only rendered when at least one guest exists.
   let activeGuestId = null; // null = 내 기록 (mine)
   // Zero-size marker (never shown): .screen lays out its direct children in a
@@ -280,8 +288,281 @@ export async function mount(root, ctx) {
       return btn;
     }
 
-    function sessionDetail(session) {
-      const detail = el("div", "log-detail");
+    // ---- editing a completed session (v1.3.1) --------------------------
+    // Every editor works on a deep copy of the stored sets/cardio object;
+    // only Save writes it back and calls put("sessions", ...), so Cancel is
+    // lossless. Guests never get here (all call sites check data.isGuest).
+
+    function numberInput(value) {
+      const input = document.createElement("input");
+      input.type = "number";
+      input.inputMode = "decimal";
+      input.value = value == null ? "" : String(value);
+      input.style.width = "100%";
+      return input;
+    }
+
+    function textInput(value) {
+      const input = document.createElement("input");
+      input.type = "text";
+      input.value = value == null ? "" : String(value);
+      input.style.width = "100%";
+      return input;
+    }
+
+    function fieldBox(labelText, input, basis) {
+      const box = el("div", "field");
+      box.style.flex = `0 1 ${basis}`;
+      box.appendChild(el("label", null, labelText));
+      box.appendChild(input);
+      return box;
+    }
+
+    // Empty input keeps the previous value; so does anything Number() cannot
+    // read. A deliberate zero must be typed as 0.
+    function numOr(input, prev) {
+      const raw = input.value.trim();
+      if (raw === "") return prev;
+      const n = Number(raw);
+      return Number.isFinite(n) ? n : prev;
+    }
+
+    // Cardio distance / HR are genuinely optional: clearing the box stores
+    // null, not 0.
+    function nullableNum(input, prev) {
+      const raw = input.value.trim();
+      if (raw === "") return null;
+      const n = Number(raw);
+      return Number.isFinite(n) ? n : prev;
+    }
+
+    // 4-way none/easy/normal/hard selector over the effort.* or rpe.* keys.
+    function levelSeg(prefix, current, onPick) {
+      const seg = el("div", "seg");
+      const options = [
+        [null, t("common.none")],
+        ["easy", t(`${prefix}.easy`)],
+        ["normal", t(`${prefix}.normal`)],
+        ["hard", t(`${prefix}.hard`)],
+      ];
+      const btns = [];
+      for (const [value, label] of options) {
+        const btn = el("button", value === (current || null) ? "sel" : null, label);
+        btn.type = "button";
+        btn.addEventListener("click", () => {
+          for (const b of btns) b.el.classList.toggle("sel", b.value === value);
+          onPick(value);
+        });
+        btns.push({ value, el: btn });
+        seg.appendChild(btn);
+      }
+      return seg;
+    }
+
+    function editorBox() {
+      const box = el("div", "card");
+      box.style.display = "flex";
+      box.style.flexDirection = "column";
+      box.style.gap = "10px";
+      // The whole card toggles the detail on click; nothing inside the editor
+      // may reach that handler.
+      box.addEventListener("click", (event) => event.stopPropagation());
+      return box;
+    }
+
+    function actionRow(onSave, onCancel) {
+      const row = el("div");
+      row.style.display = "flex";
+      row.style.alignItems = "center";
+      row.style.gap = "12px";
+      const save = el("button", "btn-primary", t("common.save"));
+      save.type = "button";
+      save.addEventListener("click", async () => {
+        save.disabled = true;
+        await onSave();
+      });
+      const cancel = el("button", "link", t("common.cancel"));
+      cancel.type = "button";
+      cancel.addEventListener("click", onCancel);
+      row.append(save, cancel);
+      return row;
+    }
+
+    function entryEditor(session, entry, refresh, onClose) {
+      const box = editorBox();
+      const buf = (entry.sets || []).map((s) => ({ ...s }));
+
+      const rows = el("div");
+      rows.style.display = "flex";
+      rows.style.flexDirection = "column";
+      rows.style.gap = "10px";
+      let refs = [];
+
+      // Typed values live in the DOM until something rebuilds the rows (add /
+      // delete) or Save runs, so both paths read them back into the buffer.
+      function commitInputs() {
+        for (const ref of refs) {
+          const set = buf[ref.index];
+          if (!set) continue;
+          for (const [field, input] of Object.entries(ref.inputs)) {
+            set[field] = numOr(input, set[field]);
+          }
+        }
+      }
+
+      function renderRows() {
+        rows.textContent = "";
+        refs = [];
+        let working = 0;
+        buf.forEach((set, index) => {
+          let label;
+          if (set.warmup) label = t("common.warmup");
+          else if (set.drop) label = t("common.drop");
+          else label = t("common.set.n", { n: ++working });
+
+          const row = el("div");
+          row.style.display = "flex";
+          row.style.flexWrap = "wrap";
+          row.style.alignItems = "flex-end";
+          row.style.gap = "8px";
+          row.appendChild(el("span", "hint", label));
+
+          const inputs = {};
+          if (set.holdSec > 0) {
+            inputs.holdSec = numberInput(set.holdSec);
+            row.appendChild(fieldBox(t("log.edit.hold"), inputs.holdSec, "90px"));
+          } else {
+            inputs.weight = numberInput(set.weight);
+            inputs.reps = numberInput(set.reps);
+            row.appendChild(fieldBox(t("log.edit.weight"), inputs.weight, "90px"));
+            row.appendChild(fieldBox(t("log.edit.reps"), inputs.reps, "76px"));
+          }
+          refs.push({ index, inputs });
+
+          const effortField = el("div", "field");
+          effortField.appendChild(el("label", null, t("log.edit.effort")));
+          effortField.appendChild(levelSeg("effort", set.effort, (v) => { set.effort = v; }));
+          row.appendChild(effortField);
+
+          const remove = el("button", "link", t("common.delete"));
+          remove.type = "button";
+          remove.addEventListener("click", () => {
+            commitInputs();
+            buf.splice(index, 1);
+            renderRows();
+          });
+          row.appendChild(remove);
+
+          rows.appendChild(row);
+        });
+      }
+
+      renderRows();
+      box.appendChild(rows);
+
+      const addBtn = el("button", "btn-secondary", t("log.edit.addset"));
+      addBtn.type = "button";
+      addBtn.addEventListener("click", () => {
+        commitInputs();
+        const last = [...buf].reverse().find((s) => !s.warmup);
+        buf.push({
+          weight: (last && last.weight) || 0,
+          reps: (last && last.reps) || 8,
+          effort: null,
+          warmup: false,
+        });
+        renderRows();
+      });
+      box.appendChild(addBtn);
+
+      box.appendChild(actionRow(
+        async () => {
+          commitInputs();
+          entry.sets = buf.map((s) => ({ ...s }));
+          await put("sessions", session);
+          ctx.showToast(t("common.done"));
+          refresh();
+        },
+        onClose,
+      ));
+      return box;
+    }
+
+    function cardioEditor(session, refresh, onClose) {
+      const box = editorBox();
+      const current = session.cardio
+        || { activity: "running", minutes: 0, distanceKm: null, avgHr: null, rpe: null, note: "" };
+      const buf = { ...current };
+
+      const minutes = numberInput(buf.minutes);
+      const distance = numberInput(buf.distanceKm);
+      const hr = numberInput(buf.avgHr);
+
+      const grid = el("div");
+      grid.style.display = "flex";
+      grid.style.flexWrap = "wrap";
+      grid.style.gap = "8px";
+      grid.appendChild(fieldBox(t("log.edit.minutes"), minutes, "100px"));
+      grid.appendChild(fieldBox(t("log.edit.distance"), distance, "100px"));
+      grid.appendChild(fieldBox(t("log.edit.hr"), hr, "100px"));
+      box.appendChild(grid);
+
+      const rpeField = el("div", "field");
+      rpeField.appendChild(el("label", null, t("log.edit.rpe")));
+      rpeField.appendChild(levelSeg("rpe", buf.rpe, (v) => { buf.rpe = v; }));
+      box.appendChild(rpeField);
+
+      const note = textInput(buf.note);
+      box.appendChild(fieldBox(t("log.edit.note"), note, "100%"));
+
+      box.appendChild(actionRow(
+        async () => {
+          buf.minutes = numOr(minutes, buf.minutes);
+          buf.distanceKm = nullableNum(distance, buf.distanceKm);
+          buf.avgHr = nullableNum(hr, buf.avgHr);
+          buf.note = note.value;
+          session.cardio = { ...buf };
+          await put("sessions", session);
+          ctx.showToast(t("common.done"));
+          refresh();
+        },
+        onClose,
+      ));
+      return box;
+    }
+
+    // Edit button + the editor it toggles open directly beneath it.
+    function editToggle(build) {
+      const wrap = el("div");
+      wrap.style.display = "flex";
+      wrap.style.flexDirection = "column";
+      wrap.style.gap = "8px";
+      wrap.style.alignItems = "flex-start";
+
+      const btn = el("button", "link", t("log.edit"));
+      btn.type = "button";
+      wrap.appendChild(btn);
+
+      let editor = null;
+      function closeEditor() {
+        if (editor) editor.remove();
+        editor = null;
+      }
+      btn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        if (editor) {
+          closeEditor();
+          return;
+        }
+        editor = build(closeEditor);
+        editor.style.alignSelf = "stretch";
+        wrap.appendChild(editor);
+      });
+      return wrap;
+    }
+
+    function fillSessionDetail(detail, session, refresh) {
+      detail.textContent = "";
       // Daily check summary + memo, previously stored but never shown here.
       const daily = session.daily || {};
       const dailyParts = [];
@@ -345,9 +626,15 @@ export async function mount(root, ctx) {
           dLine.appendChild(dValue);
           detail.appendChild(dLine);
         }
+
+        if (!data.isGuest) {
+          detail.appendChild(editToggle((close) => entryEditor(session, entry, refresh, close)));
+        }
+      }
+      if (session.kind === "cardio" && !data.isGuest) {
+        detail.appendChild(editToggle((close) => cardioEditor(session, refresh, close)));
       }
       if (!data.isGuest) detail.appendChild(deleteLink("sessions", session.id));
-      return detail;
     }
 
     function sessionCard(item) {
@@ -357,8 +644,7 @@ export async function mount(root, ctx) {
       row.appendChild(dateBox(item.date));
 
       const body = el("div", "body");
-      body.appendChild(el("div", "t", session.programName || t(`kind.${session.kind}`)));
-      sessionMeta(body, session);
+      rebuildBody(body, session);
       row.appendChild(body);
 
       if (session.kind === "weights" && session.recovery) {
@@ -367,14 +653,22 @@ export async function mount(root, ctx) {
       card.appendChild(row);
 
       // v1.1.1 polish item 8: cardio sessions were excluded from this click
-      // handler entirely, so their delete link (built by sessionDetail below)
-      // was never reachable. entries is empty for cardio, so sessionDetail
-      // renders no exercise lines for it - just the delete link.
+      // handler entirely, so their delete link (built by fillSessionDetail
+      // below) was never reachable. entries is empty for cardio, so the
+      // detail renders no exercise lines for it - just its editor and the
+      // delete link.
       if (session.kind === "weights" || session.kind === "calisthenics" || session.kind === "cardio") {
         let detail = null;
+        // After a save the detail is rebuilt in place (staying open) and the
+        // collapsed summary row is redrawn from the same session object.
+        const refresh = () => {
+          rebuildBody(body, session);
+          if (detail) fillSessionDetail(detail, session, refresh);
+        };
         card.addEventListener("click", () => {
           if (!detail) {
-            detail = sessionDetail(session);
+            detail = el("div", "log-detail");
+            fillSessionDetail(detail, session, refresh);
             card.appendChild(detail);
             return;
           }

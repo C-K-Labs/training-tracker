@@ -10,6 +10,12 @@
 import { t, getLang, setLang, availableLangs } from "./i18n.js";
 import { getAll, bulkPut, put, getSettings, saveSettings, importPack } from "./store.js";
 import { generateCourse, volumeReport } from "./gen.js";
+import { normalizeCode, deriveFromCode, decryptBlob } from "./crypto.js";
+
+// Same worker endpoint settings' cloud rows use. It is duplicated here on
+// purpose: js/ui/settings.js imports this module, so importing it back would
+// create a cycle.
+const BACKUP_ENDPOINT = "https://training-tracker-api.ck-labs.workers.dev/backup";
 
 const GOALS = ["hypertrophy", "strength", "fatloss", "fitness"];
 const EXPERIENCES = ["beginner", "intermediate", "advanced"];
@@ -168,14 +174,24 @@ export async function mount(root, ctx, opts = {}) {
 
     const importBtn = el("button", "btn-secondary", t("onboarding.step0.import"));
     importBtn.type = "button";
+    // A freshly installed home-screen PWA gets its own storage container, so
+    // a sync code made in the browser is the only way back to the data - the
+    // file picker is not always reachable there.
+    const restoreBtn = el("button", "btn-secondary", t("onboarding.step0.restore"));
+    restoreBtn.type = "button";
     const freshBtn = el("button", "btn-primary", t("onboarding.step0.fresh"));
     freshBtn.type = "button";
     freshBtn.addEventListener("click", () => goTo(1));
-    choiceBox.append(importBtn, freshBtn);
+    choiceBox.append(importBtn, restoreBtn, freshBtn);
 
     importBtn.addEventListener("click", () => {
       choiceBox.remove();
       inner.appendChild(renderImportForm());
+    });
+
+    restoreBtn.addEventListener("click", () => {
+      choiceBox.remove();
+      inner.appendChild(renderRestoreForm());
     });
 
     inner.appendChild(backLink(() => goTo(-1)));
@@ -189,7 +205,7 @@ export async function mount(root, ctx, opts = {}) {
 
     const file = document.createElement("input");
     file.type = "file";
-    file.accept = "application/json,.json";
+    file.accept = ".ttpack,.json,application/json";
     box.appendChild(file);
 
     let mode = "merge";
@@ -225,6 +241,81 @@ export async function mount(root, ctx, opts = {}) {
       } catch {
         ctx.showToast(t("settings.data.import.err"));
       }
+    });
+    box.appendChild(run);
+
+    box.appendChild(backLink(() => goTo(0)));
+    return box;
+  }
+
+  // Restore straight from the cloud during first run: the typed code derives
+  // the slot, so a wrong code simply addresses a slot that does not exist.
+  // The database is empty here, so "merge" and "replace" are the same thing
+  // and no destructive confirmation is needed.
+  function renderRestoreForm() {
+    const box = el("div", "card");
+    box.style.display = "flex";
+    box.style.flexDirection = "column";
+    box.style.gap = "10px";
+
+    const codeInput = document.createElement("input");
+    codeInput.type = "text";
+    codeInput.placeholder = t("settings.data.restore.code.ph");
+    codeInput.setAttribute("autocapitalize", "characters");
+    codeInput.setAttribute("autocomplete", "off");
+    codeInput.setAttribute("spellcheck", "false");
+    box.appendChild(codeInput);
+
+    const run = el("button", "btn-primary", t("settings.data.restore.run"));
+    run.type = "button";
+    run.addEventListener("click", async () => {
+      const canonical = normalizeCode(codeInput.value);
+      if (!canonical) {
+        ctx.showToast(t("settings.data.restore.badcode"));
+        return;
+      }
+      run.disabled = true;
+      run.textContent = t("settings.data.cloud.working");
+      try {
+        const { slotId } = await deriveFromCode(canonical);
+        const res = await fetch(`${BACKUP_ENDPOINT}?slot=${slotId}`);
+        if (res.status === 404) {
+          ctx.showToast(t("settings.data.restore.notfound"));
+        } else if (res.status === 429) {
+          ctx.showToast(t("settings.data.cloud.err.rate"));
+        } else if (!res.ok) {
+          ctx.showToast(t("settings.data.cloud.err"));
+        } else {
+          const body = await res.json();
+          let pack = null;
+          try {
+            pack = await decryptBlob(body.blob, canonical);
+          } catch {
+            // Tampered or unreadable blob: same message as a missing backup,
+            // because from the user's side the code is what went wrong.
+            ctx.showToast(t("settings.data.restore.notfound"));
+          }
+          if (pack) {
+            const counts = await importPack(pack, "merge");
+            // This device now shares the backup: adopt the code so it can
+            // back up here too, without a second setup.
+            const settings = await getSettings();
+            settings.cloudBackup = { code: canonical, lastAt: body.updatedAt };
+            await saveSettings(settings);
+            await markOnboarded();
+            ctx.showToast(t("settings.data.import.ok", {
+              e: counts.exercises, p: counts.programs, s: counts.sessions,
+            }));
+            close();
+            finish();
+            return;
+          }
+        }
+      } catch {
+        ctx.showToast(t("settings.data.cloud.err"));
+      }
+      run.textContent = t("settings.data.restore.run");
+      run.disabled = false;
     });
     box.appendChild(run);
 

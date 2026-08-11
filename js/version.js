@@ -4,9 +4,25 @@
 // Newest entry first. The service worker cache version is bumped separately
 // in sw.js at each deploy.
 
-export const APP_VERSION = "1.3.0";
+export const APP_VERSION = "1.3.1";
 
 export const CHANGELOG = [
+  {
+    version: "1.3.1",
+    date: "2026-08-11",
+    notes: {
+      ko: [
+        "완료된 세션 편집: 기록에서 운동별 세트 무게/횟수/체감 수정, 세트 추가/삭제 (유산소 포함)",
+        "첫 실행 화면에서 동기화 코드로 바로 복원 가능",
+        "첫 실행 파일 가져오기가 .ttpack 파일 지원",
+      ],
+      en: [
+        "Edit completed sessions: change set weight/reps/effort, add or delete sets in the log (cardio too)",
+        "Restore with a sync code right from the first-run screen",
+        "First-run file import accepts .ttpack files",
+      ],
+    },
+  },
   {
     version: "1.3.0",
     date: "2026-08-11",
