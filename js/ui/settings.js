@@ -458,8 +458,15 @@ function programCard(state, ctx) {
     addRow("rest", {
       title: t("settings.rest.title"),
       desc: t("settings.rest.hint"),
-      right: mmss(state.settings.restDefaultSec ?? 90),
+      right: `${mmss(state.settings.restCompoundSec ?? 150)} · ${mmss(state.settings.restIsolationSec ?? 90)}`,
       editor: (box) => restEditor(box, state, ctx, render),
+    });
+
+    addRow("warmup", {
+      title: t("settings.warmup.title"),
+      desc: t("settings.warmup.desc"),
+      right: t(`settings.warmup.${state.settings.warmupStyle === "flat" ? "flat" : "ramp"}`),
+      editor: (box) => warmupEditor(box, state, ctx, render),
     });
   }
 
@@ -467,19 +474,27 @@ function programCard(state, ctx) {
   return card;
 }
 
-// Rest timer defaults (A2): global default in seconds plus per-exercise
-// overrides (settings.restOverrides, exerciseId -> seconds). Consumed by
-// js/rules.js restSecondsFor, which prefers the override when present.
+// Rest timer defaults (A2, split by tier in v1.2): compound/isolation set
+// rest plus the between-exercise rest, and per-exercise overrides
+// (settings.restOverrides, exerciseId -> seconds). Consumed by js/rules.js
+// restSecondsFor, which prefers the override when present.
 function restEditor(box, state, ctx, render) {
-  const defaultSec = state.settings.restDefaultSec ?? 90;
-  const def = numberField(t("settings.rest.seconds"), defaultSec, { min: 10, step: 5 }, "1 1 140px");
-  box.appendChild(def.field);
-  box.appendChild(el("div", "hint", mmss(defaultSec)));
+  box.appendChild(el("div", "hint", t("settings.rest.tier.desc")));
+  const compound = numberField(t("settings.rest.compound"), state.settings.restCompoundSec ?? 150, { min: 10, step: 5 }, "1 1 100px");
+  const isolation = numberField(t("settings.rest.isolation"), state.settings.restIsolationSec ?? 90, { min: 10, step: 5 }, "1 1 100px");
+  const between = numberField(t("settings.rest.between"), state.settings.restBetweenSec ?? 150, { min: 10, step: 5 }, "1 1 100px");
+  const line = flexBox();
+  line.append(compound.field, isolation.field, between.field);
+  box.appendChild(line);
   const save = el("button", "btn-primary", t("common.save"));
   save.addEventListener("click", async () => {
-    const v = numValue(def.control, NaN);
-    if (!Number.isFinite(v) || v < 10) return;
-    state.settings.restDefaultSec = v;
+    const c = numValue(compound.control, NaN);
+    const i = numValue(isolation.control, NaN);
+    const b = numValue(between.control, NaN);
+    if (![c, i, b].every((v) => Number.isFinite(v) && v >= 10)) return;
+    state.settings.restCompoundSec = c;
+    state.settings.restIsolationSec = i;
+    state.settings.restBetweenSec = b;
     await commitSettings(state, ctx, { silent: true });
     render();
   });
@@ -537,6 +552,24 @@ function restEditor(box, state, ctx, render) {
   });
   overridesWrap.appendChild(add);
   box.appendChild(overridesWrap);
+}
+
+// Warm-up load style (v1.2): flat repeats 50% of the target on every
+// warm-up set; ramp climbs 50% -> 70% so the last warm-up sits closer to
+// the working load.
+function warmupEditor(box, state, ctx, render) {
+  const seg = el("div", "seg");
+  for (const value of ["ramp", "flat"]) {
+    const btn = el("button", (state.settings.warmupStyle === "flat" ? "flat" : "ramp") === value ? "sel" : null, t(`settings.warmup.${value}`));
+    btn.type = "button";
+    btn.addEventListener("click", async () => {
+      state.settings.warmupStyle = value;
+      await commitSettings(state, ctx, { silent: true });
+      render();
+    });
+    seg.appendChild(btn);
+  }
+  box.appendChild(seg);
 }
 
 // silent (v1.1.1 polish item 4): field-level item edits (sets/reps/
@@ -800,12 +833,28 @@ function exerciseUsage(state, exerciseId) {
 }
 
 function libraryEditor(box, state, ctx, render) {
+  // Compound vs isolation (v1.2): explained once here because the tier
+  // drives the two rest defaults; auto-classified until explicitly set.
+  box.appendChild(el("div", "hint", t("tier.desc")));
   for (const ex of state.exercises) {
     const line = flexBox();
     line.style.justifyContent = "space-between";
     const meta = `${t(`bodypart.${ex.bodyPart}`)}/${t(`equipment.${ex.equipment}`)}/${t(`today.weight.unit.${ex.unit}`)}`;
     const label = exLabel(ex) + (ex.emphasis ? ` · ${ex.emphasis}` : "");
     line.appendChild(el("div", null, `${label} · ${meta}`));
+
+    const tierSelect = selectEl(
+      ["compound", "isolation"].map((v) => ({ value: v, label: t(`tier.${v}`) })),
+      rules.exerciseTier(ex),
+    );
+    tierSelect.style.flex = "0 1 110px";
+    tierSelect.addEventListener("change", async () => {
+      ex.tier = tierSelect.value;
+      await put("exercises", ex);
+      ctx.showToast(t("settings.saved"));
+      render();
+    });
+    line.appendChild(tierSelect);
 
     // Emphasis (C2): inline edit on the existing exercise, kept separate
     // from the add-new-exercise form below.
@@ -851,9 +900,10 @@ function libraryEditor(box, state, ctx, render) {
   const bodyPart = selectEl(BODY_PARTS.map((v) => ({ value: v, label: t(`bodypart.${v}`) })), "legs");
   const equipment = selectEl(EQUIPMENT.map((v) => ({ value: v, label: t(`equipment.${v}`) })), "dumbbell");
   const unit = selectEl(UNITS.map((v) => ({ value: v, label: t(`today.weight.unit.${v}`) })), "lb");
-  for (const s of [bodyPart, equipment, unit]) s.style.flex = "1 1 90px";
+  const tier = selectEl(["compound", "isolation"].map((v) => ({ value: v, label: t(`tier.${v}`) })), "compound");
+  for (const s of [bodyPart, equipment, unit, tier]) s.style.flex = "1 1 90px";
   const selectLine = flexBox();
-  selectLine.append(bodyPart, equipment, unit);
+  selectLine.append(bodyPart, equipment, unit, tier);
   box.appendChild(fieldEl(null, selectLine));
 
   const spinalWrap = el("label");
@@ -879,6 +929,7 @@ function libraryEditor(box, state, ctx, render) {
       variant: variant.value.trim(),
       emphasis: emphasis.value.trim(),
       spinalLoad: spinal.checked,
+      tier: tier.value,
     });
     state.exercises = await getAll("exercises");
     ctx.showToast(t("settings.saved"));

@@ -132,7 +132,15 @@ export const DEFAULT_SETTINGS = {
   // Display unit for load values: stored values never change meaning, this
   // only affects formatting (js/rules.js formatLoad / parseLoadInput).
   displayUnit: "both",
+  // Legacy single default, kept as the last fallback in restSecondsFor for
+  // settings saved before the tier split; the tier pair below wins.
   restDefaultSec: 90,
+  restCompoundSec: 150,   // multi-joint lifts (squat, press, row...)
+  restIsolationSec: 90,   // single-joint work (raises, curls, flyes...)
+  restBetweenSec: 150,    // between exercises, replaces the set rest there
+  // Warm-up load style: "ramp" climbs 50% -> 70% across warm-up sets,
+  // "flat" repeats 50%.
+  warmupStyle: "ramp",
   restOverrides: {}, // exerciseId -> seconds
   recoveryRule: { gapDays: 14, factor: 0.83 },
   recovery: { active: false, startedAt: null },

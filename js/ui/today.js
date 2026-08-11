@@ -107,6 +107,22 @@ function textInput(value) {
   return input;
 }
 
+// Multi-line note input that grows with its content (v1.2): a fixed
+// single-line input made long notes unreadable and hard to keep editing.
+function textareaInput(value) {
+  const input = document.createElement("textarea");
+  input.rows = 3;
+  if (value != null) input.value = String(value);
+  input.addEventListener("input", () => {
+    input.style.height = "auto";
+    input.style.height = `${input.scrollHeight + 2}px`;
+  });
+  return input;
+}
+
+// Conventions that get an entry hint under the weight stepper.
+const LOAD_HINT_CONVENTIONS = ["excludes-bar", "per-hand", "stack"];
+
 function checkboxField(labelText, checked) {
   const input = document.createElement("input");
   input.type = "checkbox";
@@ -283,14 +299,14 @@ function renderIdle(root, ctx, data) {
     }));
   }
 
-  root.appendChild(renderStartCard(ctx, settings, programs));
+  root.appendChild(renderStartCard(ctx, settings, programs, exercises));
   root.appendChild(renderWaterCard(ctx, settings, water));
   root.appendChild(renderCardioCard(ctx));
   root.appendChild(renderBodyweightCard(ctx, settings, bodyweightRecords));
   root.appendChild(renderCalisthenicsCard(ctx, exercises));
 }
 
-function renderStartCard(ctx, settings, programs) {
+function renderStartCard(ctx, settings, programs, exercises) {
   const card = el("div", "card");
   card.appendChild(el("h2", null, t("today.start.title")));
 
@@ -300,13 +316,14 @@ function renderStartCard(ctx, settings, programs) {
     return card;
   }
 
+  const byId = Object.fromEntries((exercises || []).map((e) => [e.id, e]));
   let selected = weightPrograms[0];
   const estimateEl = el("div", null);
   estimateEl.style.color = "var(--ink2)";
   estimateEl.style.fontSize = "13px";
   const showEstimate = () => {
     estimateEl.textContent = t("today.start.estimate", {
-      n: rules.estimateSessionMinutes(selected, settings),
+      n: rules.estimateSessionMinutes(selected, settings, byId),
     });
   };
   const row = el("div", "filter-row");
@@ -711,7 +728,7 @@ function renderDailyCard(ctx, session) {
   }
   const heat = checkboxField(t("today.daily.heat"), daily.heat);
   const protein = checkboxField(t("today.daily.protein"), daily.proteinOk);
-  const note = textInput(daily.note || "");
+  const note = textareaInput(daily.note || "");
   form.append(
     field(t("today.daily.sleep", { h: daily.sleepH == null ? "-" : fmtNum(daily.sleepH) }), sleep),
     field(t("today.daily.condition", { v: daily.condition == null ? "-" : fmtNum(daily.condition) }), condition),
@@ -828,7 +845,12 @@ function renderActive(root, ctx, data, session) {
   // Draft of the set currently being entered. Kept across in-place re-renders
   // of the card, reset whenever the active exercise (or superset side, or
   // pyramid rung) changes. dropDismissed/seenWorking are C1 additions.
-  const draft = { entryIndex: -1, weight: 0, reps: 0, effort: null, dropDismissed: false, seenWorking: 0 };
+  const draft = { entryIndex: -1, weight: 0, reps: 0, effort: null, dropDismissed: false, seenWorking: 0, phase: "none" };
+  // Manual exercise selection (v1.2): tapping an incomplete exercise row
+  // makes it the active one (e.g. when the machine for the next-in-order
+  // exercise is taken). Cleared once that entry completes, falling back to
+  // first-incomplete order.
+  let manualIndex = null;
 
   const entryState = (entry, item) => {
     const working = rules.workingSets(entry.sets).length;
@@ -921,6 +943,36 @@ function renderActive(root, ctx, data, session) {
     return -1;
   }
 
+  // Manual pick wins while its entry is incomplete; superset members route
+  // through the pair's turn logic so the alternation stays intact.
+  function computeActiveIndex() {
+    if (manualIndex != null) {
+      const entry = session.entries[manualIndex];
+      const item = entry ? resolveItem(manualIndex) : null;
+      if (!entry || entryState(entry, item).complete) {
+        manualIndex = null;
+      } else {
+        for (const partnerIdx of [manualIndex - 1, manualIndex + 1]) {
+          const partner = session.entries[partnerIdx];
+          if (!partner) continue;
+          const partnerItem = resolveItem(partnerIdx);
+          const paired = item.method === "superset" && partnerItem.method === "superset"
+            && item.supersetGroup && item.supersetGroup === partnerItem.supersetGroup;
+          if (!paired) continue;
+          const aIdx = Math.min(manualIndex, partnerIdx);
+          const bIdx = Math.max(manualIndex, partnerIdx);
+          const turn = supersetTurn(session.entries[aIdx], resolveItem(aIdx), session.entries[bIdx], resolveItem(bIdx));
+          if (turn === "a") return aIdx;
+          if (turn === "b") return bIdx;
+          manualIndex = null;
+          break;
+        }
+        if (manualIndex != null) return manualIndex;
+      }
+    }
+    return computeInteractiveIndex();
+  }
+
   // Default stepper weight/reps for an entry about to become active:
   // dropset (post-last-set) reuses the last main set's reps as a starting
   // point (its weight display is auto-filled from the chain, not this);
@@ -936,8 +988,9 @@ function renderActive(root, ctx, data, session) {
     const state = entryState(entry, item);
     const warmupTarget = num(item.warmupSets);
     if (state.warm < warmupTarget && state.working === 0) {
+      const plan = rules.warmupPlanLoads(item.targetLoad, warmupTarget, steps, settings.warmupStyle);
       return {
-        weight: rules.warmupDefaultLoad(item.targetLoad, steps),
+        weight: plan[Math.min(state.warm, plan.length - 1)] ?? 0,
         reps: entry.targetReps === "max" ? 0 : num(entry.targetReps),
       };
     }
@@ -972,8 +1025,11 @@ function renderActive(root, ctx, data, session) {
     if (!state.complete) {
       return t("rest.next", { name: exercise ? exercise.name : t("common.exercise.deleted"), n: state.working + 1 });
     }
+    // Wrap-around scan (v1.2): with out-of-order picks, the next incomplete
+    // exercise can sit BEFORE the one just finished.
     const idx = session.entries.indexOf(entry);
-    for (let i = idx + 1; i < session.entries.length; i++) {
+    for (let k = 1; k <= session.entries.length; k++) {
+      const i = (idx + k) % session.entries.length;
       const nextEntry = session.entries[i];
       const nextItem = itemFor(program, nextEntry.exerciseId);
       const nextState = entryState(nextEntry, nextItem);
@@ -1019,11 +1075,28 @@ function renderActive(root, ctx, data, session) {
     row.appendChild(nameCell(exercise, entry));
     const badge = methodBadge(item.method);
     if (badge) row.appendChild(badge);
-    row.appendChild(el(
-      "div",
-      "meta",
-      `${item.sets}×${repsText(entry.targetReps)} · ${loadText(exercise, item.targetLoad, settings)}`,
-    ));
+    // Meta: warm-up count spelled out (so "3x8" is unambiguously working
+    // sets only), and during recovery the applied load shown next to the
+    // program target ("75 lb -> 60 lb") to match what the stepper opens at.
+    const warmups = num(item.warmupSets);
+    const setsText = warmups > 0
+      ? `${t("today.meta.warmup", { n: warmups })} + ${item.sets}×${repsText(entry.targetReps)}`
+      : `${item.sets}×${repsText(entry.targetReps)}`;
+    let load = loadText(exercise, item.targetLoad, settings);
+    if (session.recovery && exercise?.equipment !== "bodyweight" && item.targetLoad > 0) {
+      const adjusted = rules.recoveryLoad(item.targetLoad, settings.recoveryRule.factor, stepsFor(exercise, settings));
+      if (adjusted !== item.targetLoad) load = `${load} → ${loadText(exercise, adjusted, settings)}`;
+    }
+    row.appendChild(el("div", "meta", `${setsText} · ${load}`));
+    // Tap-to-select (v1.2): any incomplete, non-active exercise can be made
+    // active out of order.
+    if (!state.complete && index !== activeIndex) {
+      row.classList.add("pickable");
+      row.addEventListener("click", () => {
+        manualIndex = index;
+        renderCard();
+      });
+    }
     return row;
   }
 
@@ -1101,7 +1174,8 @@ function renderActive(root, ctx, data, session) {
       entry.sets.push({ weight: nextDropLoad, reps: num(draft.reps), effort: null, warmup: false, drop: true });
       await put("sessions", session);
       if (dropsDone(entry) >= chain.length) {
-        startRest(rules.restSecondsFor(entry.exerciseId, settings), nextSetLabel(entry, item, exercise));
+        // The exercise is fully done at this point: between-exercise rest.
+        startRest(settings.restBetweenSec ?? 150, nextSetLabel(entry, item, exercise));
       }
       renderCard();
     });
@@ -1109,7 +1183,7 @@ function renderActive(root, ctx, data, session) {
     skip.type = "button";
     skip.addEventListener("click", () => {
       draft.dropDismissed = true;
-      startRest(rules.restSecondsFor(entry.exerciseId, settings), nextSetLabel(entry, item, exercise));
+      startRest(settings.restBetweenSec ?? 150, nextSetLabel(entry, item, exercise));
       renderCard();
     });
     actions.append(save, skip);
@@ -1126,7 +1200,16 @@ function renderActive(root, ctx, data, session) {
     const list = el("div", "ex-list");
     card.appendChild(list);
 
-    const activeIndex = computeInteractiveIndex();
+    const activeIndex = computeActiveIndex();
+    // The entry's warm/working phase, used to re-derive the stepper default
+    // exactly when it changes: each warm-up set (ramp style needs the next
+    // rung) and the warm -> working transition (the working default is the
+    // target/recovery load, not the last warm-up load).
+    const phaseOf = (entry, item) => {
+      if (!entry || !item) return "none";
+      const s = entryState(entry, item);
+      return s.warm < num(item.warmupSets) && s.working === 0 ? `warm${s.warm}` : "work";
+    };
     if (draft.entryIndex !== activeIndex) {
       draft.entryIndex = activeIndex;
       draft.effort = null;
@@ -1138,13 +1221,16 @@ function renderActive(root, ctx, data, session) {
       draft.weight = d.weight;
       draft.reps = d.reps;
       draft.seenWorking = entry ? rules.workingSets(entry.sets).filter((s) => !s.drop).length : 0;
+      draft.phase = phaseOf(entry, item);
     } else if (draft.entryIndex >= 0) {
       const entry = session.entries[draft.entryIndex];
       const item = resolveItem(draft.entryIndex);
       const exercise = exercisesById[entry.exerciseId] || null;
       const seenNow = rules.workingSets(entry.sets).filter((s) => !s.drop).length;
-      if (item.method === "pyramid" && seenNow !== draft.seenWorking) {
+      const phaseNow = phaseOf(entry, item);
+      if ((item.method === "pyramid" && seenNow !== draft.seenWorking) || phaseNow !== draft.phase) {
         draft.seenWorking = seenNow;
+        draft.phase = phaseNow;
         const d = defaultDraftFor(entry, item, exercise);
         draft.weight = d.weight;
         draft.reps = d.reps;
@@ -1238,6 +1324,13 @@ function renderActive(root, ctx, data, session) {
     );
     entryBox.appendChild(stepperRow);
 
+    // Load-convention reminder (v1.2): what the entered number means for
+    // this equipment (bar excluded / per hand / stack pin).
+    const conv = exercise?.loadConvention;
+    if (!bodyweight && LOAD_HINT_CONVENTIONS.includes(conv)) {
+      entryBox.appendChild(el("div", "hint", t(`loadhint.${conv}`)));
+    }
+
     const effortRow = el("div", "effort-row");
     for (const level of EFFORT_LEVELS) {
       const button = el("button", "effort", t(`effort.${level}`));
@@ -1276,7 +1369,15 @@ function renderActive(root, ctx, data, session) {
         const label = opts.supersetSide === "b"
           ? nextSetLabelSuperset(entry, item, exercise, opts.partnerIndex)
           : nextSetLabel(entry, item, exercise);
-        startRest(rules.restSecondsFor(entry.exerciseId, settings), label);
+        // Between-exercise rest (v1.2) replaces the set rest once the whole
+        // exercise (both superset sides, when paired) is done.
+        let restSec = rules.restSecondsFor(entry.exerciseId, settings, exercise);
+        if (nowComplete) {
+          const partnerDone = opts.supersetSide == null
+            || entryState(session.entries[opts.partnerIndex], resolveItem(opts.partnerIndex)).complete;
+          if (partnerDone) restSec = settings.restBetweenSec ?? 150;
+        }
+        startRest(restSec, label);
       }
       renderCard();
     });
@@ -1406,6 +1507,13 @@ function restBarRefs() {
   const bar = document.getElementById("rest-bar");
   if (!bar) return null;
   if (bar.dataset.built === "1") {
+    // Refresh the static button labels on every lookup: the bar is built
+    // once at module load, which runs BEFORE boot() applies the stored
+    // language, so labels built then would stay in the fallback language.
+    const actions = bar.querySelectorAll(".restbar-actions button");
+    if (actions[0]) actions[0].textContent = t("rest.add30");
+    if (actions[1]) actions[1].textContent = t("rest.skip");
+    bar.setAttribute("aria-label", t("rest.title"));
     return {
       bar,
       progress: bar.querySelector(".progress"),

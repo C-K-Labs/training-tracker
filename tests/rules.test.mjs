@@ -7,7 +7,7 @@ import {
   weekKey, weeklyBalance, emphasisBreakdown,
   monthlyProgressPct, overshootWarning,
   KG_PER_LB, lbToKg, kgToLb, formatLoad, parseLoadInput, restSecondsFor,
-  estimateSessionMinutes,
+  estimateSessionMinutes, warmupPlanLoads, exerciseTier,
   proteinTargetG, proteinCoefDisplay, bodyweightDisplay, leanMassKg,
   paceText, weeklyCardioMinutes,
   pyramidPlan, dropChain,
@@ -215,8 +215,10 @@ test("parseLoadInput: invalid text falls back to 0", () => {
 test("restSecondsFor: per-exercise override wins over the global default", () => {
   const settings = { restDefaultSec: 90, restOverrides: { "smith-squat": 150 } };
   assert.equal(restSecondsFor("smith-squat", settings), 150);
-  assert.equal(restSecondsFor("ohp", settings), 90);
-  assert.equal(restSecondsFor("ohp", { restOverrides: {} }), 90); // default fallback when restDefaultSec missing
+  assert.equal(restSecondsFor("ohp", settings), 90); // legacy single default still honored
+  // With no settings at all, the tier hard defaults apply (compound when
+  // the exercise is unknown).
+  assert.equal(restSecondsFor("ohp", { restOverrides: {} }), 150);
 });
 
 // ---------------------------------------------- cardio / body comp (v1.1, B)
@@ -418,25 +420,66 @@ test("weeklyBalance: a holdSec set (reps 0) still counts as a working set", () =
   assert.equal(workingSets(sessions[0].entries[0].sets).length, 2);
 });
 
-test("estimateSessionMinutes: sums exec + rest per working set, warm-ups, and setup time", () => {
-  // One exercise: 3 sets x 8 reps (24s exec, clamp floor -> 24s? no: 8*3=24 < 20? no, 24s)
-  // exec = 24s, rest = 90s default -> 3*(24+90) = 342s, no warmups, +75s setup = 417s -> 7 min
+test("estimateSessionMinutes: exec per set, rest only between sets", () => {
+  // 3 sets x 8 reps -> 3*24s exec + 2*150s rest (compound default, no
+  // exercise map) = 372s -> 6 min; single item, so no between-exercise rest.
   const program = { items: [{ exerciseId: "a", sets: 3, reps: 8, warmupSets: 0 }] };
-  assert.equal(estimateSessionMinutes(program, {}), 7);
+  assert.equal(estimateSessionMinutes(program, {}), 6);
 });
 
 test("estimateSessionMinutes: 'max' reps count as 40s and warm-ups add short cycles", () => {
-  // exec = 40s ("max"), rest = 90 -> 3*130 = 390s; 2 warmups * (25 + 60) = 170s; +75s = 635s -> 11 min
+  // work = 3*40 + 2*150 = 420s; warmups = 2 * (25 + 60 cap) = 170s -> 590s -> 10 min
   const program = { items: [{ exerciseId: "a", sets: 3, reps: "max", warmupSets: 2 }] };
-  assert.equal(estimateSessionMinutes(program, {}), 11);
+  assert.equal(estimateSessionMinutes(program, {}), 10);
 });
 
-test("estimateSessionMinutes: respects per-exercise rest overrides and clamps exec time", () => {
-  // 15 reps -> 45s exec; override rest 60 -> 3*(45+60) = 315s + 75 = 390s -> 7 min (6.5 rounds up)
+test("estimateSessionMinutes: rest overrides win and empty programs are 0", () => {
+  // 15 reps -> 45s exec; override rest 60 -> 3*45 + 2*60 = 255s -> 4 min
   const settings = { restDefaultSec: 90, restOverrides: { hi: 60 } };
   const program = { items: [{ exerciseId: "hi", sets: 3, reps: 15, warmupSets: 0 }] };
-  assert.equal(estimateSessionMinutes(program, settings), 7);
-  // Empty / missing items -> 0
+  assert.equal(estimateSessionMinutes(program, settings), 4);
   assert.equal(estimateSessionMinutes({ items: [] }, settings), 0);
   assert.equal(estimateSessionMinutes(null, settings), 0);
+});
+
+test("estimateSessionMinutes: between-exercise rest lands between items, tier picks the set rest", () => {
+  const settings = { restCompoundSec: 120, restIsolationSec: 60, restBetweenSec: 150 };
+  const byId = {
+    a: { id: "a", name: "Smith Squat" },
+    b: { id: "b", name: "Lateral Raise" },
+  };
+  // a (compound): 3*24 + 2*120 = 312s; between: 150s; b (isolation): 3*24 + 2*60 = 192s
+  // total = 654s -> 11 min
+  const program = { items: [
+    { exerciseId: "a", sets: 3, reps: 8, warmupSets: 0 },
+    { exerciseId: "b", sets: 3, reps: 8, warmupSets: 0 },
+  ] };
+  assert.equal(estimateSessionMinutes(program, settings, byId), 11);
+});
+
+test("warmupPlanLoads: flat repeats 50%, ramp climbs 50 -> 70, snapped to steps", () => {
+  assert.deepEqual(warmupPlanLoads(90, 2, smithSteps, "flat"), [45, 45]);
+  assert.deepEqual(warmupPlanLoads(90, 2, smithSteps, "ramp"), [45, 60]); // 63 snaps down to 60
+  assert.deepEqual(warmupPlanLoads(90, 1, smithSteps, "ramp"), [50]);     // 54 snaps down to 50
+  assert.deepEqual(warmupPlanLoads(90, 0, smithSteps, "ramp"), []);
+});
+
+test("exerciseTier: explicit tier wins, isolation patterns match, default is compound", () => {
+  assert.equal(exerciseTier({ id: "lateral-raise", name: "레터럴 레이즈" }), "isolation");
+  assert.equal(exerciseTier({ id: "leg-curl", name: "레그컬" }), "isolation");
+  assert.equal(exerciseTier({ id: "smith-squat", name: "스미스 스쿼트" }), "compound");
+  assert.equal(exerciseTier({ id: "ex-abc123", name: "펙덱 플라이" }), "isolation");
+  assert.equal(exerciseTier({ id: "lateral-raise", tier: "compound" }), "compound");
+  assert.equal(exerciseTier({ id: "mystery" }), "compound");
+});
+
+test("restSecondsFor: override > tier defaults > legacy restDefaultSec", () => {
+  const tiered = { restCompoundSec: 150, restIsolationSec: 90, restOverrides: { dl: 180 } };
+  assert.equal(restSecondsFor("dl", tiered, { id: "dl", name: "Deadlift" }), 180);
+  assert.equal(restSecondsFor("x", tiered, { id: "x", name: "Lateral Raise" }), 90);
+  assert.equal(restSecondsFor("x", tiered, { id: "x", name: "Squat" }), 150);
+  assert.equal(restSecondsFor("x", tiered), 150); // no exercise info -> compound
+  const legacy = { restDefaultSec: 120 };
+  assert.equal(restSecondsFor("x", legacy, { id: "x", name: "Lateral Raise" }), 120);
+  assert.equal(restSecondsFor("x", legacy, { id: "x", name: "Squat" }), 120);
 });

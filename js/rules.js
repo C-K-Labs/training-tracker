@@ -219,6 +219,40 @@ export function warmupDefaultLoad(targetLoad, steps) {
   return snapped == null ? steps[0] : snapped;
 }
 
+// Warm-up loads for every warm-up set of an item, snapped to inventory
+// steps. style "flat" repeats 50%; "ramp" (the default) climbs 50% -> 70%
+// linearly across the sets (a single ramped warm-up lands at 60%).
+export function warmupPlanLoads(targetLoad, warmupSets, steps, style) {
+  const n = Math.max(0, Math.trunc(warmupSets) || 0);
+  if (n === 0) return [];
+  const snap = (pct) => {
+    if (!Array.isArray(steps) || steps.length === 0) return 0;
+    const snapped = snapDown(targetLoad * pct, steps);
+    return snapped == null ? steps[0] : snapped;
+  };
+  if (style === "flat") return Array.from({ length: n }, () => snap(0.5));
+  if (n === 1) return [snap(0.6)];
+  return Array.from({ length: n }, (_, i) => snap(0.5 + 0.2 * (i / (n - 1))));
+}
+
+// Compound (multi-joint) vs isolation (single-joint) classification, used
+// for the two-tier rest defaults. An explicit exercise.tier always wins;
+// otherwise the id + name are matched against isolation patterns (English
+// and Korean gym vocabulary), and anything unmatched defaults to compound,
+// which errs toward the longer, safer rest.
+const ISOLATION_PATTERN = new RegExp([
+  "raise", "curl", "fly", "pec-deck", "pecdeck", "extension", "pushdown",
+  "kickback", "shrug", "calf", "crunch", "plank", "l-sit", "lateral",
+  "레이즈", "컬", "플라이", "펙덱", "익스텐션", "푸시다운", "킥백", "슈러그",
+  "카프", "크런치", "플랭크",
+].join("|"), "i");
+
+export function exerciseTier(exercise) {
+  if (exercise?.tier === "isolation" || exercise?.tier === "compound") return exercise.tier;
+  const haystack = `${exercise?.id || ""} ${exercise?.name || ""}`;
+  return ISOLATION_PATTERN.test(haystack) ? "isolation" : "compound";
+}
+
 // Percent change between the latest load and the closest entry >= windowDays
 // earlier. history: [{date, load}] in any order. Returns null when the
 // window has no comparison point.
@@ -307,32 +341,41 @@ export function parseLoadInput(text, storedUnit, displayUnit) {
   return Math.round(stored * 100) / 100;
 }
 
-// Per-exercise rest override wins over the global default (A2).
-export function restSecondsFor(exerciseId, settings) {
+// Per-exercise rest override wins; otherwise the exercise's tier picks one
+// of the two defaults (compound/isolation). The legacy single restDefaultSec
+// is the last fallback for settings saved before the tier split existed.
+export function restSecondsFor(exerciseId, settings, exercise) {
   const ov = settings?.restOverrides?.[exerciseId];
   if (typeof ov === "number" && Number.isFinite(ov)) return ov;
-  return settings?.restDefaultSec ?? 90;
+  const tier = exercise ? exerciseTier(exercise) : "compound";
+  if (tier === "isolation") return settings?.restIsolationSec ?? settings?.restDefaultSec ?? 90;
+  return settings?.restCompoundSec ?? settings?.restDefaultSec ?? 150;
 }
 
 // Estimated session length in minutes for a program, from its items and the
 // user's rest settings. Per working set: execution (3s per rep, clamped to
-// 20-60s; "max"/hold-style targets count as 40s) plus the exercise's rest.
-// Warm-up sets execute faster (25s) and rest at most 60s. Each exercise adds
-// 75s of setup/transition. This is a planning estimate, not a stopwatch.
-export function estimateSessionMinutes(program, settings) {
+// 20-60s; "max"/hold-style targets count as 40s); set rest runs between sets
+// of the same exercise (tier-aware via restSecondsFor when exercisesById is
+// provided), and the between-exercise rest runs after each exercise except
+// the last. Warm-up sets execute faster (25s) and rest at most 60s. This is
+// a planning estimate, not a stopwatch.
+export function estimateSessionMinutes(program, settings, exercisesById) {
   let totalSec = 0;
-  for (const item of program?.items || []) {
+  const items = program?.items || [];
+  const betweenSec = settings?.restBetweenSec ?? 150;
+  items.forEach((item, idx) => {
     const reps = item.reps;
     const execSec = typeof reps === "number" && Number.isFinite(reps)
       ? Math.min(60, Math.max(20, reps * 3))
       : 40;
-    const rest = restSecondsFor(item.exerciseId, settings);
+    const exercise = exercisesById ? exercisesById[item.exerciseId] : null;
+    const rest = restSecondsFor(item.exerciseId, settings, exercise);
     const workSets = item.sets || 0;
     const warmups = item.warmupSets || 0;
-    totalSec += workSets * (execSec + rest);
+    totalSec += workSets * execSec + Math.max(0, workSets - 1) * rest;
     totalSec += warmups * (25 + Math.min(60, rest));
-    totalSec += 75;
-  }
+    if (idx < items.length - 1) totalSec += betweenSec;
+  });
   return Math.round(totalSec / 60);
 }
 

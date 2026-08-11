@@ -482,6 +482,7 @@ button.chip { cursor: pointer; }
   margin: 2px 0 8px;
 }
 .superset-group .ex-row { border-bottom: 1px dashed var(--line); }
+.ex-row.pickable { cursor: pointer; }
 .superset-group .ex-row:last-of-type { border-bottom: none; }
 
 .set-line.planned { opacity: 0.55; font-style: italic; }
