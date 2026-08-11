@@ -1,6 +1,7 @@
 # Secrets - never commit
 .env
 .env.*
+.dev.vars
 *.key
 *.pem
 credentials*
@@ -12,6 +13,9 @@ training-program-reference.md
 
 # Dependencies (future-proofing; no npm yet)
 node_modules/
+
+# Wrangler local dev state (worker)
+worker/.wrangler/
 
 # OS junk
 Thumbs.db

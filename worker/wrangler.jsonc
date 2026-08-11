@@ -1,0 +1,17 @@
+{
+  "name": "training-tracker-api",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-01",
+  "kv_namespaces": [
+    {
+      "binding": "STORE",
+      // Filled in after `wrangler kv namespace create STORE`.
+      "id": "a9270afe1281454189983cadcf471b09"
+    }
+  ],
+  "vars": {
+    "GITHUB_REPO": "C-K-Labs/training-tracker-feedback",
+    "ALLOWED_ORIGINS": "https://c-k-labs.github.io,http://localhost:8000,http://127.0.0.1:8000"
+  }
+  // Secret (never in this file): GITHUB_TOKEN via `wrangler secret put GITHUB_TOKEN`.
+}

@@ -1,0 +1,12 @@
+{
+  "name": "training-tracker-worker",
+  "private": true,
+  "description": "Cloudflare Worker backing the Training Tracker PWA: feedback relay to GitHub issues and sync-code cloud backup.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}
