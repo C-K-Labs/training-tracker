@@ -3,6 +3,29 @@
 Single source of truth for project status and what comes next. Update this
 file at the end of every working session.
 
+## Status (2026-08-11 evening, v1.3.1 + v1.3.2)
+
+Two same-day follow-ups after the user's real-device test, both deployed
+and live-verified (commits e9d232e, a976134; sw v18):
+
+- v1.3.1 NEW: onboarding step 0 gained "코드로 복원" - the user's exact
+  blocked flow (code from Safari, fresh home-screen PWA container, no way
+  to enter it). Restore adopts the code on the new device; onboarding file
+  import now accepts .ttpack. NEW: completed sessions are editable in the
+  log - per-exercise set weight/reps/hold/effort with add/delete set, and
+  cardio minutes/distance/HR/RPE/note; deep-copy buffers (cancel is
+  lossless), guests stay read-only, stats/suggestions pick edits up
+  automatically. User confirmed both work on the phone.
+- v1.3.2 FIX: iOS auto-zoom on input focus (inputs now 16px, the Safari
+  threshold; .field rule carries its own copy since it outranks the global
+  selector) and double-tap-zoom misfires on rapid set-logging taps
+  (touch-action: manipulation on controls). Pinch zoom kept (a11y).
+- Known minor gaps parked for later: edited reps still display the
+  program's targetReps in the log summary line (editor does not expose
+  targetReps yet); generated-course program names are Korean literals in
+  all languages (gen.js SPLIT_BY_DAYS); the install banner overlays the
+  last card's content instead of pushing it up.
+
 ## Status (2026-08-11, v1.3.0)
 
 v1.3.0 deployed and live-verified (commits 92d6ff6 + d88a9dc, sw v16), on
@@ -157,6 +180,9 @@ v1 complete and deployed.
    Run support is unconfirmed-likely-no (user was to check the SuuntoPlus
    Store in their Suunto app). Native v2 door (watch session UI, HealthKit)
    stays closed by decision.
+   Small-item pool for the next minor: expose targetReps in the session
+   editor; localize generated-course program names (gen.js SPLIT_BY_DAYS);
+   install banner pushes content instead of overlaying the last card.
 9. Operational: GitHub token for the feedback Worker expires 2027-08-11;
    regenerate and `wrangler secret put GITHUB_TOKEN` before then.
 
