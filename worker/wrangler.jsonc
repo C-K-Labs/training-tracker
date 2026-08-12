@@ -9,6 +9,19 @@
       "id": "a9270afe1281454189983cadcf471b09"
     }
   ],
+  "durable_objects": {
+    "bindings": [
+      {
+        // One object per push subscription endpoint; its alarm delivers the
+        // scheduled rest-end notification (sub-minute precision, free plan).
+        "name": "PUSH_DO",
+        "class_name": "PushScheduler"
+      }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["PushScheduler"] }
+  ],
   "vars": {
     "GITHUB_REPO": "C-K-Labs/training-tracker-feedback",
     "ALLOWED_ORIGINS": "https://c-k-labs.github.io,http://localhost:8000,http://127.0.0.1:8000"

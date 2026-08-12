@@ -5,9 +5,39 @@
 // Newest entry first. The service worker cache version is bumped separately
 // in sw.js at each deploy.
 
-export const APP_VERSION = "1.3.3";
+export const APP_VERSION = "1.4.0";
 
 export const CHANGELOG = [
+  {
+    version: "1.4.0",
+    date: "2026-08-12",
+    notes: {
+      ko: [
+        "휴식 종료 알림: 휴식이 끝나는 순간 잠금화면으로 다음 세트 알림 (설정에서 켜기, 워치 미러링 지원)",
+        "아이폰: 홈 화면에 설치한 앱에서 알림 권한을 허용하면 동작합니다",
+      ],
+      en: [
+        "Rest-end notifications: a lock-screen alert with your next set the moment rest ends (enable in Settings; mirrors to your watch)",
+        "iPhone: works in the home-screen app once notifications are allowed",
+      ],
+      es: [
+        "Avisos de fin de descanso: una notificación en la pantalla de bloqueo con tu siguiente serie justo cuando termina el descanso (actívalo en Ajustes; también aparece en tu reloj)",
+        "iPhone: funciona en la app instalada en la pantalla de inicio tras permitir las notificaciones",
+      ],
+      pt: [
+        "Avisos de fim do descanso: uma notificação na tela de bloqueio com a sua próxima série no momento em que o descanso termina (ative nas Configurações; também aparece no seu relógio)",
+        "iPhone: funciona no app instalado na tela de início após permitir as notificações",
+      ],
+      ja: [
+        "休憩終了の通知: 休憩が終わった瞬間、次のセットをロック画面に通知（設定でオン、ウォッチにもミラーリング）",
+        "iPhone: ホーム画面に追加したアプリで通知を許可すると動作します",
+      ],
+      zh: [
+        "休息结束通知：休息结束的瞬间在锁屏上显示你的下一组（在设置中开启，也会同步到手表）",
+        "iPhone: 在添加到主屏幕的应用中允许通知后即可使用",
+      ],
+    },
+  },
   {
     version: "1.3.3",
     date: "2026-08-12",

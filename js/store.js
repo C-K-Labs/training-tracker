@@ -155,6 +155,9 @@ export const DEFAULT_SETTINGS = {
   // Water guide (B2): a cup is cupMl; waterTargetMl is a guide, not a cap.
   waterTargetMl: 2000,
   cupMl: 250,
+  // Rest-end push notifications (v1.4): written true only after the browser
+  // granted notification permission and a push subscription exists.
+  restPushEnabled: false,
 };
 
 export async function getSettings() {

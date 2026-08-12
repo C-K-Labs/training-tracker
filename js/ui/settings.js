@@ -18,6 +18,7 @@ import {
 import * as rules from "../rules.js";
 import * as onboarding from "../onboarding.js";
 import { generateCode, normalizeCode, deriveFromCode, encryptPack, decryptBlob } from "../crypto.js";
+import { isSupported as pushSupported, permissionState, iosNeedsInstall, enableRestPush, disableRestPush } from "../push.js";
 
 export const titleKey = "tab.settings";
 export const subKey = "screen.settings.sub";
@@ -185,6 +186,7 @@ export async function mount(root, ctx) {
 
   root.appendChild(inventoryCard(state, ctx));
   root.appendChild(programCard(state, ctx));
+  root.appendChild(notifyCard(state, ctx));
   root.appendChild(nutritionCard(state, ctx));
   root.appendChild(dataCard(state, ctx));
   root.appendChild(feedbackCard(state, ctx));
@@ -1531,6 +1533,71 @@ function displayCard(state, ctx) {
       right: bwSeg,
       rerender: render,
     });
+  }
+
+  render();
+  return card;
+}
+
+// ----------------------------------------------------------- notifications
+
+// Rest-end push (v1.4). Three mutually exclusive states: the platform cannot
+// do Web Push at all (iOS Safari tabs included, hence the install hint), the
+// user has blocked notifications at the system level, or the feature is a
+// plain on/off toggle. restPushEnabled is written only after the browser
+// actually granted permission and a subscription exists, so an off toggle
+// guarantees the rest bar behaves exactly as it did before this feature.
+function notifyCard(state, ctx) {
+  const { card, list } = cardEl("settings.notify.title");
+  const open = { key: null };
+
+  function render() {
+    list.textContent = "";
+    const permission = permissionState();
+    const supported = pushSupported();
+    const enabled = supported && permission === "granted" && state.settings.restPushEnabled === true;
+
+    let desc = t("settings.notify.rest.desc");
+    if (!supported) desc = t("settings.notify.unsupported");
+    else if (permission === "denied") desc = t("settings.notify.denied");
+
+    // The permission prompt has to be requested from inside this handler:
+    // iOS shows it only while the click's user gesture is still active, so
+    // enableRestPush() runs before anything is awaited.
+    const toggle = el("button", `chip-toggle${enabled ? " on" : ""}`, t(enabled ? "common.on" : "common.off"));
+    toggle.type = "button";
+    toggle.setAttribute("aria-pressed", String(enabled));
+    toggle.disabled = !supported || permission === "denied";
+    toggle.addEventListener("click", async () => {
+      if (enabled) {
+        state.settings.restPushEnabled = false;
+        await commitSettings(state, ctx, { silent: true });
+        render();
+        disableRestPush();
+        return;
+      }
+      const status = await enableRestPush();
+      if (status === "granted") {
+        state.settings.restPushEnabled = true;
+        await commitSettings(state, ctx, { silent: true });
+      }
+      render();
+    });
+
+    rowEl(list, open, "rest", {
+      title: t("settings.notify.rest"),
+      desc,
+      right: toggle,
+      rerender: render,
+    });
+
+    // iOS grants Web Push to home-screen installs only, so a Safari tab gets
+    // the one instruction that actually unblocks the feature.
+    if (!supported && iosNeedsInstall()) {
+      const hint = el("div", "hint", t("settings.notify.ios.hint"));
+      hint.style.padding = "8px 2px 12px";
+      list.appendChild(hint);
+    }
   }
 
   render();

@@ -6,6 +6,7 @@
 
 import { t, getLang } from "../i18n.js";
 import { getAll, getSettings, saveSettings, put, newId, getWater, putWater } from "../store.js";
+import { scheduleRestPush, cancelRestPush } from "../push.js";
 import * as rules from "../rules.js";
 
 export const titleKey = "tab.today";
@@ -1460,12 +1461,20 @@ function startRest(seconds, label) {
   restState = { endsAt: Date.now() + ms, totalMs: ms, label };
   restAlertFired = false;
   persistRestState();
+  // Fire-and-forget (v1.4): asks the server to push "rest over" at endsAt so
+  // the alert reaches a locked phone. Inert unless the user enabled it; a
+  // failure never touches the local countdown below.
+  scheduleRestPush(restState.endsAt, t("push.notif.title"), label);
   renderRestBar();
 }
 
 function clearRest() {
   restState = { endsAt: null, totalMs: null, label: "" };
   persistRestState();
+  // Logging the next set early, skipping rest, or finishing the session all
+  // land here: the pending push is no longer wanted. A countdown that simply
+  // reaches zero does NOT come through here, so that alarm still fires.
+  cancelRestPush();
   renderRestBar();
 }
 
@@ -1559,6 +1568,9 @@ function restBarRefs() {
     restState.totalMs = (restState.totalMs || 0) + 30000;
     restAlertFired = false;
     persistRestState();
+    // Rest moved: the server keeps one pending notification per device, so
+    // rescheduling with the new endsAt replaces the earlier one.
+    scheduleRestPush(restState.endsAt, t("push.notif.title"), restState.label);
     tickRestBar();
   });
   const skip = el("button", "chip ghost", t("rest.skip"));

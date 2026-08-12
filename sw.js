@@ -1,7 +1,7 @@
 // Service worker: network-first with cache fallback. Fresh code wins when
 // online; the cached copy keeps the app working in a dead-zone gym.
 
-const CACHE = "training-tracker-v19";
+const CACHE = "training-tracker-v20";
 const PRECACHE = [
   "./",
   "./index.html",
@@ -13,6 +13,7 @@ const PRECACHE = [
   "./js/onboarding.js",
   "./js/i18n.js",
   "./js/crypto.js",
+  "./js/push.js",
   "./js/seed.js",
   "./js/version.js",
   "./js/ui/today.js",
@@ -53,5 +54,42 @@ self.addEventListener("fetch", (event) => {
         return response;
       })
       .catch(() => caches.match(event.request, { ignoreSearch: true }))
+  );
+});
+
+// Rest-end push (v1.4): the server fires one notification at the moment rest
+// ends. The tag makes a late duplicate replace the earlier notification
+// instead of stacking a second "rest over" on the lock screen.
+self.addEventListener("push", (event) => {
+  let title = "";
+  let body = "";
+  if (event.data) {
+    try {
+      const payload = event.data.json();
+      title = payload.title || "";
+      body = payload.body || "";
+    } catch {
+      // Not JSON (or a payload-less wake-up): show whatever text arrived.
+      body = event.data.text();
+    }
+  }
+  event.waitUntil(self.registration.showNotification(title || "Training Tracker", {
+    body,
+    icon: "icons/icon-192.png",
+    tag: "rest-end",
+  }));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      // Reuse the tab that is already open (the session is still running in
+      // it) rather than opening a second copy of the app.
+      for (const client of clients) {
+        if ("focus" in client) return client.focus();
+      }
+      return self.clients.openWindow("./");
+    })
   );
 });
