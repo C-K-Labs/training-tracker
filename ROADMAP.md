@@ -3,6 +3,41 @@
 Single source of truth for project status and what comes next. Update this
 file at the end of every working session.
 
+## Status (2026-08-12, v1.3.3 + v1.4.0)
+
+Two releases in one session, both deployed (commits bf862a0 + 2ad4493, sw
+v19 then v20; Worker redeployed with the push scheduler):
+
+- v1.3.3: patch notes in all six languages (CHANGELOG carries es/pt/ja/zh
+  for every version; update notice + settings history read the active
+  language, English fallback; the i18n parity test now covers CHANGELOG so
+  a missing translation fails the suite). First-run language detection
+  falls back to English instead of Korean for unsupported system locales.
+- v1.4.0: rest-end push notifications. Worker gained POST /push/schedule
+  and /push/cancel feeding a PushScheduler Durable Object (one per
+  subscription endpoint, SQLite class = free plan, millisecond alarm,
+  @pushforge/builder for VAPID + aes128gcm; first runtime npm dependency).
+  Client: js/push.js, settings notifications toggle (iOS install hint,
+  denied state), startRest/clearRest/+30s hooks, sw.js push +
+  notificationclick, 9 i18n keys x 6. VAPID private key only in a wrangler
+  secret (VAPID_PRIVATE_JWK); public key committed in js/push.js.
+  Approach: always schedule at rest start, cancel/reschedule on set-log or
+  +30s; duplicates while the app is visible are accepted for now.
+- Verification: 92 node tests; miniflare runtime pass (schedule/cancel,
+  5 rejection classes incl. host-spoof, alarm fired at T+6s); delegated
+  client build browser-verified with stubbed push APIs (30 assertions,
+  zero real push traffic); live prod smoke green; change-scoped security
+  review: 2 Low (alarm fetch timeout, stale-job drop) found and fixed same
+  day (baseline in the skillset home reports\).
+- NOT yet done: real-device acceptance. On the phone (home-screen PWA):
+  enable the toggle in settings, run a session, lock the phone, expect the
+  lock-screen notification at rest end and watch mirroring. First 404-class
+  push failures after enabling would point at a stale subscription.
+- Known small gaps logged for later: no pushsubscriptionchange handler
+  (a rotated subscription silently stops notifications until the toggle is
+  cycled); the settings row only re-reads permission on remount after the
+  user unblocks notifications in system settings.
+
 ## Status (2026-08-11 evening, v1.3.1 + v1.3.2)
 
 Two same-day follow-ups after the user's real-device test, both deployed
@@ -172,38 +207,33 @@ v1 complete and deployed.
    2026-08-11: no store publication (Play $25 + 12-tester gate, Apple
    $99/yr + 4.2 risk); PWA link distribution instead. Revisit only if
    real user demand appears through the feedback inbox.
-8. v1.4 SCOPE SETTLED (2026-08-11 evening, user approved the shape; start
-   here next session with a design proposal for the push part):
-   - Web push via the existing Worker: rest-end / next-set notifications
-     ("휴식 끝. 다음: 스쿼트 80kg 3세트") scheduled at rest-start, updated
-     per set. Lands on the lock screen AND mirrors to ALL four watch
-     ecosystems with zero per-watch code, because watches mirror phone
-     notifications: Apple Watch (iOS 16.4+ installed-PWA push mirrors like
-     any app; needs phone screen off + watch worn), Suunto Run (has
-     notification mirroring per its user guide), Garmin (Connect smart
-     notifications), Galaxy/Wear OS (per-app mirroring). iOS precondition:
-     home-screen install + notification permission. SuuntoPlus app path is
-     OBSOLETE - mirroring covers it. True live lock-screen progress
-     (Live Activity style) is native-only and stays out.
-     Design notes for the Worker scheduler: needs delayed delivery
-     (rest timers are ~90-150s, finer than cron's 1-minute grain) - look
-     at Durable Object alarms on the free plan vs client-side re-push.
-   - Localize generated-course program names (gen.js SPLIT_BY_DAYS Korean
-     literals; user packs unaffected, only non-Korean generator users see
-     it - confirmed real but narrow 2026-08-11).
-   - Expose targetReps in the session editor (summary line still shows
-     program target after editing reps).
-   - Install banner pushes content up instead of overlaying the last card.
+8. v1.4 progress:
+   - ~~Web push (the main part)~~ SHIPPED as v1.4.0 (2026-08-12, see top).
+     Durable Object alarms won over client-side re-push (a locked iPhone
+     suspends all PWA JS, and the push protocol has no delayed delivery, so
+     a server-side scheduler is the only path; DO alarms are millisecond-
+     precision and free-plan-covered). Awaiting real-device acceptance.
+   - Remaining small items for v1.4.x:
+     - Localize generated-course program names (gen.js SPLIT_BY_DAYS Korean
+       literals; user packs unaffected, only non-Korean generator users see
+       it - confirmed real but narrow 2026-08-11).
+     - Expose targetReps in the session editor (summary line still shows
+       program target after editing reps).
+     - Install banner pushes content up instead of overlaying the last card.
+     - Body-composition trend smoothing (moving average over daily noise) -
+       user decided YES 2026-08-12.
+     - Push polish (from the v1.4.0 review): pushsubscriptionchange
+       re-subscribe in sw.js; re-check notification permission without a
+       settings remount.
    - EXCLUDED by user decision: Android Web Bluetooth HR.
-   - PENDING user decision: body-composition trend smoothing (moving
-     average over daily noise) - explained, awaiting yes/no.
 9. Operational: GitHub token for the feedback Worker expires 2027-08-11;
    regenerate and `wrangler secret put GITHUB_TOKEN` before then.
 
 ## How to resume a session
 
 - Tests: `node --test tests/rules.test.mjs tests/gen.test.mjs
-  tests/i18n.test.mjs tests/crypto.test.mjs` (run from project root).
+  tests/i18n.test.mjs tests/crypto.test.mjs tests/push.test.mjs` (run from
+  project root).
 - User feedback inbox: `gh issue list --repo C-K-Labs/training-tracker-feedback`
 - Worker deploy: `npx wrangler deploy` in worker\ (only when the Worker
   itself changes; app deploys never require it).
