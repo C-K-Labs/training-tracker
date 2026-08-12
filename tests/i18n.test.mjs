@@ -7,6 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { dictionaries } from "../js/i18n.js";
+import { CHANGELOG } from "../js/version.js";
 
 const LANGS = Object.keys(dictionaries);
 const REFERENCE = "ko";
@@ -43,6 +44,28 @@ test("no dictionary has duplicate or empty values for a key", () => {
     }
   }
   assert.equal(empties.length, 0, `empty or non-string values: ${empties.join(", ")}`);
+});
+
+// Patch notes are user-facing i18n content too: a release note added in one
+// language and forgotten in another would silently fall back to English, so
+// hold CHANGELOG to the same parity bar as the dictionaries.
+test("every changelog entry has notes in every language", () => {
+  const problems = [];
+  for (const entry of CHANGELOG) {
+    for (const lang of LANGS) {
+      const notes = entry.notes[lang];
+      if (!Array.isArray(notes) || notes.length === 0) {
+        problems.push(`v${entry.version} has no ${lang} notes`);
+        continue;
+      }
+      if (notes.some((n) => typeof n !== "string" || n.trim() === "")) {
+        problems.push(`v${entry.version} has an empty ${lang} note`);
+      }
+    }
+    const extra = diff(Object.keys(entry.notes), LANGS);
+    if (extra.length) problems.push(`v${entry.version} has unknown languages: ${extra.join(", ")}`);
+  }
+  assert.equal(problems.length, 0, `changelog language coverage diverges\n${problems.join("\n")}`);
 });
 
 test("the v1.3.0 feedback keys exist in every language", () => {

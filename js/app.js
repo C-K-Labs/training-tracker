@@ -118,9 +118,9 @@ function showUpdateNotice() {
   card.appendChild(head);
   card.appendChild(el("div", "hint", entry.date));
 
-  // Patch notes exist in ko/en only by design (js/version.js); every other
-  // UI language reads the English list.
-  const notes = entry.notes[getLang() === "ko" ? "ko" : "en"] || [];
+  // Patch notes ship in every UI language (js/version.js); English is the
+  // fallback for any entry that predates a language.
+  const notes = entry.notes[getLang()] || entry.notes.en || [];
   const list = document.createElement("ul");
   list.style.margin = "8px 0";
   list.style.paddingLeft = "18px";

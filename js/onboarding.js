@@ -90,12 +90,13 @@ async function markOnboarded() {
   await put("kv", { key: "onboarded", done: true });
 }
 
-// Best-guess UI language from the browser locale, falling back to whatever
-// is already active (the stored default) when the locale isn't supported.
+// Best-guess UI language from the browser locale. English is the fallback
+// for unsupported locales: a German or French system should not land on the
+// stored default (Korean).
 function detectLang() {
   const nav = (typeof navigator !== "undefined" && navigator.language) || "";
   const short = nav.toLowerCase().split("-")[0];
-  return availableLangs().includes(short) ? short : getLang();
+  return availableLangs().includes(short) ? short : "en";
 }
 
 // mount(root, ctx, opts):

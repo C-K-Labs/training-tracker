@@ -195,9 +195,8 @@ export async function mount(root, ctx) {
 // ------------------------------------------------------------------ about
 
 // Version and patch notes (v1.3.0). The same CHANGELOG the update notice
-// reads, kept reachable after that notice is closed. Notes ship in ko/en
-// only (js/version.js), so every non-Korean UI shows the English list under
-// its own localized labels.
+// reads, kept reachable after that notice is closed. Notes ship in every UI
+// language (js/version.js), with English as the fallback.
 function aboutCard(state, ctx) {
   const { card, list } = cardEl("settings.about.title");
   const open = { key: null };
@@ -211,7 +210,7 @@ function aboutCard(state, ctx) {
       rerender: render,
       editor: (box) => {
         box.appendChild(el("div", "hint", t("settings.about.autoupdate")));
-        const noteLang = getLang() === "ko" ? "ko" : "en";
+        const noteLang = getLang();
         for (const entry of CHANGELOG) {
           const head = flexBox("6px");
           head.appendChild(el("strong", null, `v${entry.version}`));
@@ -225,7 +224,7 @@ function aboutCard(state, ctx) {
           notes.style.flexDirection = "column";
           notes.style.gap = "4px";
           notes.style.fontSize = "13px";
-          for (const note of entry.notes[noteLang] || []) notes.appendChild(el("li", null, note));
+          for (const note of entry.notes[noteLang] || entry.notes.en || []) notes.appendChild(el("li", null, note));
           box.appendChild(notes);
         }
       },
