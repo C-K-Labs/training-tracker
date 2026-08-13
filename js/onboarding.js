@@ -11,6 +11,7 @@ import { t, getLang, setLang, availableLangs } from "./i18n.js";
 import { getAll, bulkPut, put, getSettings, saveSettings, importPack } from "./store.js";
 import { generateCourse, volumeReport } from "./gen.js";
 import { normalizeCode, deriveFromCode, decryptBlob } from "./crypto.js";
+import { programLabel } from "./names.js";
 
 // Same worker endpoint settings' cloud rows use. It is duplicated here on
 // purpose: js/ui/settings.js imports this module, so importing it back would
@@ -204,6 +205,19 @@ export async function mount(root, ctx, opts = {}) {
     restoreBtn.addEventListener("click", () => { state.dataMode = "restore"; render(); });
 
     inner.appendChild(backLink(() => goTo(-1)));
+
+    // Escape hatch straight to the main screen: marks onboarding done so the
+    // wizard does not reappear on next launch. The course generator stays
+    // reachable from Settings.
+    const skipLink = el("button", "link", t("onboarding.preview.skip"));
+    skipLink.type = "button";
+    skipLink.addEventListener("click", async () => {
+      skipLink.disabled = true;
+      await markOnboarded();
+      close();
+      finish();
+    });
+    inner.appendChild(skipLink);
   }
 
   function renderImportForm() {
@@ -431,7 +445,7 @@ export async function mount(root, ctx, opts = {}) {
     list.style.gap = "8px";
     for (const program of course.programs) {
       const row = el("div", "onboard-session");
-      row.appendChild(el("div", "name", program.name));
+      row.appendChild(el("div", "name", programLabel(program.name)));
       row.appendChild(el("div", "meta", t("onboarding.preview.items", { n: program.items.length })));
       list.appendChild(row);
     }

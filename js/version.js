@@ -5,9 +5,39 @@
 // Newest entry first. The service worker cache version is bumped separately
 // in sw.js at each deploy.
 
-export const APP_VERSION = "1.6.0";
+export const APP_VERSION = "1.6.1";
 
 export const CHANGELOG = [
+  {
+    version: "1.6.1",
+    date: "2026-08-13",
+    notes: {
+      ko: [
+        "처음 실행 화면에 '건너뛰기'가 생겨 코스 설정 없이 바로 메인 화면으로 이동할 수 있습니다 (추천 코스 생성은 설정에서 언제든 가능)",
+        "첫 설정의 코스 미리보기 프로그램 이름이 앱 언어를 따라갑니다",
+      ],
+      en: [
+        "A 'Skip' link on the first-run screen now takes you straight to the main screen without course setup (the course generator stays available in Settings)",
+        "Program names in the first-run course preview now follow the app language",
+      ],
+      es: [
+        "Un enlace 'Saltar' en la pantalla de primer uso te lleva directo a la pantalla principal sin configurar la rutina (el generador de rutinas sigue disponible en Ajustes)",
+        "Los nombres de los programas en la vista previa inicial ahora siguen el idioma de la app",
+      ],
+      pt: [
+        "Um link 'Pular' na tela de primeiro uso leva você direto à tela principal sem configurar o treino (o gerador de treinos continua disponível nas Configurações)",
+        "Os nomes dos programas na prévia inicial agora seguem o idioma do app",
+      ],
+      ja: [
+        "初回画面に「スキップ」が追加され、コース設定なしでメイン画面へ進めるようになりました（おすすめコース生成は設定からいつでも可能）",
+        "初回設定のコースプレビューのプログラム名がアプリの言語に追従します",
+      ],
+      zh: [
+        "首次启动页新增「跳过」，无需课程设置即可直接进入主界面（推荐课程生成仍可随时在设置中使用）",
+        "首次设置的课程预览中的计划名称现在会跟随应用语言",
+      ],
+    },
+  },
   {
     version: "1.6.0",
     date: "2026-08-12",
