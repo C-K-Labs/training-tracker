@@ -46,6 +46,13 @@ const ALLOWED_EQUIPMENT = {
 // Korean names are the canonical real gym terms used elsewhere in this app
 // (training-program-reference.md / exports/program-pack.json). i18nKey feeds
 // Group E's en/es/pt dictionary fill later.
+//
+// v1.5.0: the catalog is also the single source for the seeded exercise
+// library (js/seed.js derives DEFAULT_EXERCISES from it). Entries that appear
+// in no session template below (e.g. sumo-deadlift, face-pull) are
+// library-only: the generator never picks them, so adding one cannot change
+// generated courses. "barbell" equipment is likewise library-only; no
+// equipment tier allows it, so pickCandidate() can never select it.
 export const CATALOG = {
   // ---- legs ----
   "smith-squat": { nameKo: "스미스 스쿼트", bodyPart: "legs", equipment: "smith", compound: true, spinalLoad: true, i18nKey: "exname.smith-squat" },
@@ -65,6 +72,9 @@ export const CATALOG = {
   "calf-raise": { nameKo: "카프 레이즈", bodyPart: "legs", equipment: "machine", compound: false, i18nKey: "exname.calf-raise" },
   "calf-raise-db": { nameKo: "카프 레이즈 (덤벨)", bodyPart: "legs", equipment: "dumbbell", compound: false, i18nKey: "exname.calf-raise-db" },
   "calf-raise-bw": { nameKo: "카프 레이즈 (맨몸)", bodyPart: "legs", equipment: "bodyweight", compound: false, i18nKey: "exname.calf-raise-bw" },
+  "leg-press": { nameKo: "레그프레스", bodyPart: "legs", equipment: "machine", compound: true, i18nKey: "exname.leg-press" },
+  "sumo-deadlift": { nameKo: "스모 데드리프트", bodyPart: "legs", equipment: "barbell", compound: true, spinalLoad: true, i18nKey: "exname.sumo-deadlift" },
+  "hip-thrust": { nameKo: "힙 쓰러스트", bodyPart: "legs", equipment: "machine", compound: true, i18nKey: "exname.hip-thrust" },
 
   // ---- back ----
   "lat-pulldown": { nameKo: "랫풀다운", bodyPart: "back", equipment: "cable", compound: true, i18nKey: "exname.lat-pulldown" },
@@ -72,6 +82,9 @@ export const CATALOG = {
   "pull-up": { nameKo: "턱걸이", bodyPart: "back", equipment: "bodyweight", compound: true, i18nKey: "exname.pull-up" },
   "inverted-row": { nameKo: "인버티드 로우", bodyPart: "back", equipment: "bodyweight", compound: false, i18nKey: "exname.inverted-row" },
   "seated-cable-row": { nameKo: "시티드 케이블 로우", bodyPart: "back", equipment: "cable", compound: false, i18nKey: "exname.seated-cable-row" },
+  "smith-barbell-row": { nameKo: "스미스 바벨로우", bodyPart: "back", equipment: "smith", compound: true, spinalLoad: true, i18nKey: "exname.smith-barbell-row" },
+  "standing-cable-row": { nameKo: "스탠딩 케이블로우", bodyPart: "back", equipment: "cable", compound: false, spinalLoad: true, i18nKey: "exname.standing-cable-row" },
+  "db-shrug": { nameKo: "덤벨 슈러그", bodyPart: "back", equipment: "dumbbell", compound: false, i18nKey: "exname.db-shrug" },
 
   // ---- chest ----
   "smith-bench": { nameKo: "벤치프레스", bodyPart: "chest", equipment: "smith", compound: true, i18nKey: "exname.smith-bench" },
@@ -93,6 +106,8 @@ export const CATALOG = {
   "reverse-fly-db": { nameKo: "리버스 플라이 (덤벨)", bodyPart: "shoulders", equipment: "dumbbell", compound: false, i18nKey: "exname.reverse-fly-db" },
   "reverse-pec-deck": { nameKo: "리버스 펙덱", bodyPart: "shoulders", equipment: "machine", compound: false, i18nKey: "exname.reverse-pec-deck" },
   "wall-handstand-hold": { nameKo: "월 핸드스탠드 홀드", bodyPart: "shoulders", equipment: "bodyweight", compound: false, i18nKey: "exname.wall-handstand-hold" },
+  "front-raise": { nameKo: "프런트 레이즈", bodyPart: "shoulders", equipment: "dumbbell", compound: false, i18nKey: "exname.front-raise" },
+  "face-pull": { nameKo: "페이스풀", bodyPart: "shoulders", equipment: "cable", compound: false, i18nKey: "exname.face-pull" },
 
   // ---- arms ----
   "db-curl": { nameKo: "덤벨 컬", bodyPart: "arms", equipment: "dumbbell", compound: false, i18nKey: "exname.db-curl" },
@@ -100,6 +115,7 @@ export const CATALOG = {
   "overhead-triceps-ext": { nameKo: "오버헤드 트라이셉스 익스텐션", bodyPart: "arms", equipment: "dumbbell", compound: false, i18nKey: "exname.overhead-triceps-ext" },
   "diamond-pushup": { nameKo: "다이아몬드 푸시업", bodyPart: "arms", equipment: "bodyweight", compound: false, i18nKey: "exname.diamond-pushup" },
   "chin-up-bw": { nameKo: "친업", bodyPart: "arms", equipment: "bodyweight", compound: false, i18nKey: "exname.chin-up-bw" },
+  "hammer-curl": { nameKo: "해머컬", bodyPart: "arms", equipment: "dumbbell", compound: false, i18nKey: "exname.hammer-curl" },
 
   // ---- core ----
   "crunch": { nameKo: "크런치", bodyPart: "core", equipment: "bodyweight", compound: false, i18nKey: "exname.crunch" },
@@ -107,9 +123,9 @@ export const CATALOG = {
   "hanging-leg-raise": { nameKo: "행잉 레그레이즈", bodyPart: "core", equipment: "bodyweight", compound: false, i18nKey: "exname.hanging-leg-raise" },
 };
 
-function loadConventionFor(equipment) {
+export function loadConventionFor(equipment) {
   if (equipment === "dumbbell") return "per-hand";
-  if (equipment === "smith") return "excludes-bar";
+  if (equipment === "smith" || equipment === "barbell") return "excludes-bar";
   if (equipment === "bodyweight") return "bodyweight";
   return "stack"; // machine, cable
 }

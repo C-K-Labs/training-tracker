@@ -9,7 +9,7 @@
 import { t, setLang, getLang } from "./i18n.js";
 import { openDB, getSettings, requestPersist, get, put } from "./store.js";
 import { APP_VERSION, CHANGELOG } from "./version.js";
-import { seedIfEmpty } from "./seed.js";
+import { seedIfEmpty, syncLibrary } from "./seed.js";
 import * as today from "./ui/today.js";
 import * as log from "./ui/log.js";
 import * as stats from "./ui/stats.js";
@@ -259,6 +259,9 @@ async function setupInstallBanner(didOnboard) {
 async function boot() {
   await openDB();
   await seedIfEmpty();
+  // v1.5.0: existing installs pick up newly shipped library exercises here
+  // (id-based merge, one run per LIBRARY_VERSION; see js/seed.js).
+  await syncLibrary();
   const settings = await getSettings();
   setLang(settings.language);
   applyTheme(settings.theme);

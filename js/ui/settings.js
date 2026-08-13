@@ -17,6 +17,7 @@ import {
 } from "../store.js";
 import * as rules from "../rules.js";
 import * as onboarding from "../onboarding.js";
+import { tipFor } from "../tips.js";
 import { generateCode, normalizeCode, deriveFromCode, encryptPack, decryptBlob } from "../crypto.js";
 import { isSupported as pushSupported, permissionState, iosNeedsInstall, enableRestPush, disableRestPush } from "../push.js";
 
@@ -932,6 +933,23 @@ function libraryEditor(box, state, ctx, render) {
     });
     line.appendChild(remove);
     box.appendChild(line);
+
+    // Collapsible form cue (v1.5.0), same tip the session card shows; only
+    // rendered when the exercise resolves to one (js/tips.js).
+    const tipText = tipFor(ex);
+    if (tipText) {
+      const tipBtn = el("button", "link", t("tip.label"));
+      tipBtn.type = "button";
+      tipBtn.setAttribute("aria-expanded", "false");
+      const tipLine = el("div", "hint", tipText);
+      tipLine.hidden = true;
+      tipBtn.addEventListener("click", () => {
+        tipLine.hidden = !tipLine.hidden;
+        tipBtn.setAttribute("aria-expanded", String(!tipLine.hidden));
+      });
+      box.appendChild(tipBtn);
+      box.appendChild(tipLine);
+    }
   }
   if (state.exercises.length === 0) box.appendChild(el("div", "empty", t("common.none")));
 

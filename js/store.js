@@ -220,6 +220,10 @@ function sanitizeExercise(e) {
     // Target-emphasis label (C2), e.g. "광배근 상부": feeds session display and
     // the weekly body-part balance stats. Empty string means no emphasis set.
     emphasis: str(e.emphasis, ""),
+    // Shipped-catalog pointer (v1.5.0): lets tips (js/tips.js) keep resolving
+    // for generator-created ids after a backup round-trip. Strictly shaped so
+    // imported packs can't smuggle arbitrary strings through it.
+    i18nKey: typeof e.i18nKey === "string" && /^exname\.[a-z0-9-]+$/.test(e.i18nKey) ? e.i18nKey : "",
   };
 }
 

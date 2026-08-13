@@ -1,27 +1,53 @@
-// Neutral default exercise library seeded on first run. The app ships with
-// no personal data; the owner's real program and history arrive via a
-// program pack import (Settings > Data).
+// Default exercise library. Seeded whole on first run, and merged into
+// existing installs whenever LIBRARY_VERSION bumps (syncLibrary below). The
+// app ships with no personal data; the owner's real program and history
+// arrive via a program pack import (Settings > Data).
+//
+// v1.5.0: derived from the generator catalog (js/gen.js CATALOG) so the
+// library and the course generator share one source of truth. Record ids are
+// the catalog keys, which is also what the tip resolver (js/tips.js) and the
+// imported program packs key on.
 
-import { getAll, bulkPut } from "./store.js";
+import { getAll, bulkPut, get, put } from "./store.js";
+import { CATALOG, loadConventionFor } from "./gen.js";
 
-export const DEFAULT_EXERCISES = [
-  { id: "squat", name: "스쿼트", bodyPart: "legs", equipment: "barbell", unit: "lb", loadConvention: "excludes-bar", variant: "", spinalLoad: true },
-  { id: "deadlift", name: "데드리프트", bodyPart: "legs", equipment: "barbell", unit: "lb", loadConvention: "excludes-bar", variant: "", spinalLoad: true },
-  { id: "leg-press", name: "레그프레스", bodyPart: "legs", equipment: "machine", unit: "lb", loadConvention: "stack", variant: "", spinalLoad: false },
-  { id: "bench-press", name: "벤치프레스", bodyPart: "chest", equipment: "barbell", unit: "lb", loadConvention: "excludes-bar", variant: "", spinalLoad: false },
-  { id: "dips", name: "딥스", bodyPart: "chest", equipment: "bodyweight", unit: "lb", loadConvention: "bodyweight", variant: "", spinalLoad: false },
-  { id: "lat-pulldown", name: "랫풀다운", bodyPart: "back", equipment: "cable", unit: "lb", loadConvention: "stack", variant: "", spinalLoad: false },
-  { id: "seated-row", name: "시티드로우", bodyPart: "back", equipment: "cable", unit: "kg", loadConvention: "stack", variant: "", spinalLoad: false },
-  { id: "pull-up", name: "턱걸이", bodyPart: "back", equipment: "bodyweight", unit: "lb", loadConvention: "bodyweight", variant: "", spinalLoad: false },
-  { id: "overhead-press", name: "오버헤드프레스", bodyPart: "shoulders", equipment: "dumbbell", unit: "lb", loadConvention: "per-hand", variant: "", spinalLoad: false },
-  { id: "lateral-raise", name: "레터럴 레이즈", bodyPart: "shoulders", equipment: "dumbbell", unit: "lb", loadConvention: "per-hand", variant: "", spinalLoad: false },
-];
+// Bump when the shipped catalog grows so syncLibrary runs once per upgrade.
+// v1: the original 10-exercise inline seed. v2: the 46-exercise catalog.
+export const LIBRARY_VERSION = 2;
+
+export const DEFAULT_EXERCISES = Object.entries(CATALOG).map(([key, ex]) => ({
+  id: key,
+  name: ex.nameKo,
+  bodyPart: ex.bodyPart,
+  equipment: ex.equipment,
+  unit: "lb",
+  loadConvention: loadConventionFor(ex.equipment),
+  variant: "",
+  spinalLoad: !!ex.spinalLoad,
+  emphasis: "",
+  i18nKey: ex.i18nKey,
+}));
 
 export async function seedIfEmpty() {
   const existing = await getAll("exercises");
   if (existing.length === 0) {
     await bulkPut("exercises", DEFAULT_EXERCISES);
+    await put("kv", { key: "libraryVersion", v: LIBRARY_VERSION });
     return true;
   }
   return false;
+}
+
+// One-shot merge for installs that seeded an older (smaller) library: adds
+// only exercises whose id is absent, never touches existing records or their
+// history. The kv marker makes this run once per LIBRARY_VERSION bump, so an
+// exercise the user deliberately deleted afterward stays deleted.
+export async function syncLibrary() {
+  const marker = await get("kv", "libraryVersion");
+  if (marker && marker.v >= LIBRARY_VERSION) return false;
+  const have = new Set((await getAll("exercises")).map((e) => e.id));
+  const missing = DEFAULT_EXERCISES.filter((e) => !have.has(e.id));
+  if (missing.length > 0) await bulkPut("exercises", missing);
+  await put("kv", { key: "libraryVersion", v: LIBRARY_VERSION });
+  return missing.length > 0;
 }

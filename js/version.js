@@ -5,9 +5,39 @@
 // Newest entry first. The service worker cache version is bumped separately
 // in sw.js at each deploy.
 
-export const APP_VERSION = "1.4.0";
+export const APP_VERSION = "1.5.0";
 
 export const CHANGELOG = [
+  {
+    version: "1.5.0",
+    date: "2026-08-12",
+    notes: {
+      ko: [
+        "운동 팁: 세션 중 진행 중인 운동 아래 '팁'을 누르면 자세 포인트 한 줄 (설정의 운동 라이브러리에서도 확인 가능)",
+        "기본 운동 라이브러리가 46종으로 확장 (힙 쓰러스트, 레그프레스, 페이스풀, 해머컬 등). 기존 운동과 기록은 그대로 유지됩니다",
+      ],
+      en: [
+        "Exercise tips: tap 'Tip' under the active exercise for a one-line form cue (also in the Settings exercise library)",
+        "Default exercise library grown to 46 exercises (hip thrust, leg press, face pull, hammer curl, and more). Your existing exercises and history are untouched",
+      ],
+      es: [
+        "Consejos de ejercicio: toca 'Consejo' bajo el ejercicio activo para una pauta de técnica de una línea (también en la biblioteca de ejercicios de Ajustes)",
+        "La biblioteca de ejercicios crece a 46 (hip thrust, prensa de piernas, face pull, curl martillo y más). Tus ejercicios e historial no se tocan",
+      ],
+      pt: [
+        "Dicas de exercício: toque em 'Dica' sob o exercício ativo para uma dica de execução de uma linha (também na biblioteca de exercícios das Configurações)",
+        "A biblioteca padrão cresceu para 46 exercícios (hip thrust, leg press, face pull, rosca martelo e mais). Seus exercícios e histórico permanecem intactos",
+      ],
+      ja: [
+        "種目のコツ: セッション中に実施中の種目の下の「コツ」をタップするとフォームの要点を1行表示（設定の種目ライブラリでも確認可能）",
+        "デフォルトの種目ライブラリが46種目に拡大（ヒップスラスト、レッグプレス、フェイスプル、ハンマーカールなど）。既存の種目と記録はそのまま",
+      ],
+      zh: [
+        "动作要点：训练中点按当前动作下方的「要点」即可查看一行技术提示（设置中的动作库也可查看）",
+        "默认动作库扩充至46个（臀推、腿举、面拉、锤式弯举等）。你已有的动作和记录保持不变",
+      ],
+    },
+  },
   {
     version: "1.4.0",
     date: "2026-08-12",

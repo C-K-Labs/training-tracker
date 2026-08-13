@@ -7,6 +7,7 @@
 import { t, getLang } from "../i18n.js";
 import { getAll, getSettings, saveSettings, put, newId, getWater, putWater } from "../store.js";
 import { scheduleRestPush, cancelRestPush } from "../push.js";
+import { tipFor } from "../tips.js";
 import * as rules from "../rules.js";
 
 export const titleKey = "tab.today";
@@ -1067,6 +1068,27 @@ function renderActive(root, ctx, data, session) {
     return name;
   }
 
+  // Collapsible form-cue line (v1.5.0): rendered only for the active
+  // exercise and only when a tip exists (js/tips.js), so custom exercises
+  // without one add no chrome. Collapsed by default; open state lives in the
+  // DOM and resets with the card re-render, which is fine for a one-line cue.
+  function tipBlock(exercise) {
+    const text = tipFor(exercise);
+    if (!text) return null;
+    const wrap = el("div", "tip-block");
+    const btn = el("button", "link", t("tip.label"));
+    btn.type = "button";
+    btn.setAttribute("aria-expanded", "false");
+    const line = el("div", "hint", text);
+    line.hidden = true;
+    btn.addEventListener("click", () => {
+      line.hidden = !line.hidden;
+      btn.setAttribute("aria-expanded", String(!line.hidden));
+    });
+    wrap.append(btn, line);
+    return wrap;
+  }
+
   function exRow(index, item, entry, exercise, activeIndex) {
     const state = entryState(entry, item);
     const row = el("div", "ex-row");
@@ -1110,6 +1132,8 @@ function renderActive(root, ctx, data, session) {
     list.appendChild(exRow(index, item, entry, exercise, activeIndex));
 
     if (index === activeIndex) {
+      const tip = tipBlock(exercise);
+      if (tip) list.appendChild(tip);
       list.appendChild(renderSetBlock(entry, item, exercise));
     } else if (state.complete) {
       const suggestion = suggestionFor({ session, sessions, entry, item, exercise, settings });
@@ -1132,6 +1156,8 @@ function renderActive(root, ctx, data, session) {
       const item = resolveItem(activeIndex);
       const exercise = exercisesById[entry.exerciseId] || null;
       const side = activeIndex === aIdx ? "a" : "b";
+      const tip = tipBlock(exercise);
+      if (tip) group.appendChild(tip);
       group.appendChild(renderSetBlock(entry, item, exercise, {
         supersetSide: side,
         partnerIndex: side === "a" ? bIdx : aIdx,
