@@ -212,11 +212,20 @@ v1 complete and deployed.
      Durable Object alarms won over client-side re-push (a locked iPhone
      suspends all PWA JS, and the push protocol has no delayed delivery, so
      a server-side scheduler is the only path; DO alarms are millisecond-
-     precision and free-plan-covered). Awaiting real-device acceptance.
-   - Remaining small items for v1.4.x:
-     - Localize generated-course program names (gen.js SPLIT_BY_DAYS Korean
-       literals; user packs unaffected, only non-Korean generator users see
-       it - confirmed real but narrow 2026-08-11).
+     precision and free-plan-covered).
+   - ~~Push never arrived on real devices~~ ROOT-CAUSED AND FIXED in v1.6.0
+     (2026-08-12): the VAPID_PRIVATE_JWK secret had been stored as invalid
+     JSON (PowerShell pipe contamination), so the DO alarm failed at
+     buildPushHTTPRequest for every push ever scheduled. Keypair rotated,
+     secret re-put BOM-free via node stdout -> wrangler stdin, public key
+     rotated in js/push.js with silent re-subscribe for stale-key
+     subscriptions, delivery confirmed live (DO alarm -> FCM 201).
+     Real-device acceptance still pending: user must toggle notifications
+     off/on once, then lock-screen + watch check during a session.
+   - Remaining small items (was v1.4.x, several shipped in v1.6.0):
+     - ~~Localize generated-course program names~~ SHIPPED v1.6.0
+       (display-time programLabel mapping; exercise names too via
+       js/names.js exName + LIBRARY_VERSION 3 i18nKey backfill).
      - Expose targetReps in the session editor (summary line still shows
        program target after editing reps).
      - Install banner pushes content up instead of overlaying the last card.
@@ -224,7 +233,8 @@ v1 complete and deployed.
        user decided YES 2026-08-12.
      - Push polish (from the v1.4.0 review): pushsubscriptionchange
        re-subscribe in sw.js; re-check notification permission without a
-       settings remount.
+       settings remount. (Stale-VAPID-key self-heal shipped in v1.6.0
+       covers part of this.)
    - EXCLUDED by user decision: Android Web Bluetooth HR.
 9. Operational: GitHub token for the feedback Worker expires 2027-08-11;
    regenerate and `wrangler secret put GITHUB_TOKEN` before then.
