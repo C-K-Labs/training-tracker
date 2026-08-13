@@ -8,6 +8,7 @@ import { t, getLang } from "../i18n.js";
 import { getAll, getSettings, saveSettings, put, newId, getWater, putWater } from "../store.js";
 import { scheduleRestPush, cancelRestPush } from "../push.js";
 import { tipFor } from "../tips.js";
+import { exName, programLabel } from "../names.js";
 import * as rules from "../rules.js";
 
 export const titleKey = "tab.today";
@@ -330,7 +331,7 @@ function renderStartCard(ctx, settings, programs, exercises) {
   };
   const row = el("div", "filter-row");
   for (const program of weightPrograms) {
-    const chip = el("button", "filter", program.name);
+    const chip = el("button", "filter", programLabel(program.name));
     chip.type = "button";
     if (program.id === selected.id) chip.classList.add("sel");
     chip.addEventListener("click", () => {
@@ -589,12 +590,24 @@ function renderCalisthenicsCard(ctx, exercises) {
     return card;
   }
 
+  // Grouped by body part (v1.6.0) so a long library stays scannable; parts in
+  // the app's canonical order, names localized and sorted within each group.
   const select = document.createElement("select");
-  for (const exercise of options) {
-    const option = document.createElement("option");
-    option.value = exercise.id;
-    option.textContent = exercise.name;
-    select.appendChild(option);
+  const PART_ORDER = ["legs", "back", "chest", "shoulders", "arms", "core", "full"];
+  for (const part of PART_ORDER) {
+    const inPart = options
+      .filter((e) => (e.bodyPart || "full") === part)
+      .sort((a, b) => exName(a).localeCompare(exName(b)));
+    if (inPart.length === 0) continue;
+    const group = document.createElement("optgroup");
+    group.label = t(`bodypart.${part}`);
+    for (const exercise of inPart) {
+      const option = document.createElement("option");
+      option.value = exercise.id;
+      option.textContent = exName(exercise);
+      group.appendChild(option);
+    }
+    select.appendChild(group);
   }
   body.appendChild(field(t("today.cal.pick"), select));
 
@@ -822,7 +835,7 @@ function renderActive(root, ctx, data, session) {
   const { settings, programs, sessions, exercisesById, water } = data;
   const program = programs.find((p) => p.id === session.programId) || null;
 
-  ctx.setSub(t("screen.today.sub", { date: dateLabel(), session: session.programName }));
+  ctx.setSub(t("screen.today.sub", { date: dateLabel(), session: programLabel(session.programName) }));
   startTimer(root, ctx, session.startedAt);
 
   if (session.recovery) {
@@ -847,12 +860,16 @@ function renderActive(root, ctx, data, session) {
   // Draft of the set currently being entered. Kept across in-place re-renders
   // of the card, reset whenever the active exercise (or superset side, or
   // pyramid rung) changes. dropDismissed/seenWorking are C1 additions.
-  const draft = { entryIndex: -1, weight: 0, reps: 0, effort: null, dropDismissed: false, seenWorking: 0, phase: "none" };
+  const draft = { entryIndex: -1, weight: 0, reps: 0, effort: null, dropDismissed: false, seenWorking: 0, phase: "none", editSet: null, editWeight: 0, editReps: 0 };
   // Manual exercise selection (v1.2): tapping an incomplete exercise row
   // makes it the active one (e.g. when the machine for the next-in-order
   // exercise is taken). Cleared once that entry completes, falling back to
-  // first-incomplete order.
+  // first-incomplete order. v1.6.0: a row that was ALREADY complete when
+  // tapped stays active (manualPickComplete) so its logged sets can be
+  // edited mid-session; the auto-advance above only applies to entries
+  // picked while still incomplete.
   let manualIndex = null;
+  let manualPickComplete = false;
 
   const entryState = (entry, item) => {
     const working = rules.workingSets(entry.sets).length;
@@ -951,7 +968,12 @@ function renderActive(root, ctx, data, session) {
     if (manualIndex != null) {
       const entry = session.entries[manualIndex];
       const item = entry ? resolveItem(manualIndex) : null;
-      if (!entry || entryState(entry, item).complete) {
+      if (!entry) {
+        manualIndex = null;
+      } else if (entryState(entry, item).complete) {
+        // Deliberate revisit of a finished exercise sticks; an entry that
+        // completed AFTER being picked falls back to auto-advance.
+        if (manualPickComplete) return manualIndex;
         manualIndex = null;
       } else {
         for (const partnerIdx of [manualIndex - 1, manualIndex + 1]) {
@@ -1025,7 +1047,7 @@ function renderActive(root, ctx, data, session) {
   function nextSetLabel(entry, item, exercise) {
     const state = entryState(entry, item);
     if (!state.complete) {
-      return t("rest.next", { name: exercise ? exercise.name : t("common.exercise.deleted"), n: state.working + 1 });
+      return t("rest.next", { name: exercise ? exName(exercise) : t("common.exercise.deleted"), n: state.working + 1 });
     }
     // Wrap-around scan (v1.2): with out-of-order picks, the next incomplete
     // exercise can sit BEFORE the one just finished.
@@ -1037,7 +1059,7 @@ function renderActive(root, ctx, data, session) {
       const nextState = entryState(nextEntry, nextItem);
       if (!nextState.complete) {
         const nextEx = exercisesById[nextEntry.exerciseId] || null;
-        return t("rest.next", { name: nextEx ? nextEx.name : t("common.exercise.deleted"), n: nextState.working + 1 });
+        return t("rest.next", { name: nextEx ? exName(nextEx) : t("common.exercise.deleted"), n: nextState.working + 1 });
       }
     }
     return t("today.session.allDone");
@@ -1052,17 +1074,17 @@ function renderActive(root, ctx, data, session) {
     const turn = supersetTurn(aEntry, aItem, bEntry, bItem);
     if (turn === "a") {
       const aExercise = exercisesById[aEntry.exerciseId] || null;
-      return t("rest.next", { name: aExercise ? aExercise.name : t("common.exercise.deleted"), n: rules.workingSets(aEntry.sets).length + 1 });
+      return t("rest.next", { name: aExercise ? exName(aExercise) : t("common.exercise.deleted"), n: rules.workingSets(aEntry.sets).length + 1 });
     }
     if (turn === "b") {
-      return t("rest.next", { name: bExercise ? bExercise.name : t("common.exercise.deleted"), n: rules.workingSets(bEntry.sets).length + 1 });
+      return t("rest.next", { name: bExercise ? exName(bExercise) : t("common.exercise.deleted"), n: rules.workingSets(bEntry.sets).length + 1 });
     }
     return nextSetLabel(bEntry, bItem, bExercise);
   }
 
   function nameCell(exercise, entry) {
     const name = el("div", "name");
-    name.appendChild(el("span", null, exercise ? exercise.name : t("common.exercise.deleted")));
+    name.appendChild(el("span", null, exercise ? exName(exercise) : t("common.exercise.deleted")));
     if (exercise?.variant) name.appendChild(el("span", "variant", ` ${exercise.variant}`));
     if (exercise?.emphasis) name.appendChild(el("span", "emphasis", ` · ${exercise.emphasis}`));
     return name;
@@ -1076,13 +1098,16 @@ function renderActive(root, ctx, data, session) {
     const text = tipFor(exercise);
     if (!text) return null;
     const wrap = el("div", "tip-block");
-    const btn = el("button", "link", t("tip.label"));
+    // "팁 보기/닫기" instead of a bare "팁" (v1.6.0): first-time users did not
+    // realize the label was tappable.
+    const btn = el("button", "link", t("tip.show"));
     btn.type = "button";
     btn.setAttribute("aria-expanded", "false");
     const line = el("div", "hint", text);
     line.hidden = true;
     btn.addEventListener("click", () => {
       line.hidden = !line.hidden;
+      btn.textContent = line.hidden ? t("tip.show") : t("tip.hide");
       btn.setAttribute("aria-expanded", String(!line.hidden));
     });
     wrap.append(btn, line);
@@ -1111,12 +1136,14 @@ function renderActive(root, ctx, data, session) {
       if (adjusted !== item.targetLoad) load = `${load} → ${loadText(exercise, adjusted, settings)}`;
     }
     row.appendChild(el("div", "meta", `${setsText} · ${load}`));
-    // Tap-to-select (v1.2): any incomplete, non-active exercise can be made
-    // active out of order.
-    if (!state.complete && index !== activeIndex) {
+    // Tap-to-select (v1.2): any non-active exercise can be made active out
+    // of order; since v1.6.0 that includes completed ones, whose logged sets
+    // then become editable in the set block.
+    if (index !== activeIndex) {
       row.classList.add("pickable");
       row.addEventListener("click", () => {
         manualIndex = index;
+        manualPickComplete = state.complete;
         renderCard();
       });
     }
@@ -1218,11 +1245,77 @@ function renderActive(root, ctx, data, session) {
     return strip;
   }
 
+  // Inline editor for one already-logged set (v1.6.0). Same steppers as the
+  // entry box; Save writes the record, Delete removes the set entirely (a
+  // deleted working set can un-complete the entry, which renderCard handles
+  // naturally on the next pass).
+  function renderSetEditor(entry, setIndex, exercise, label) {
+    const set = entry.sets[setIndex];
+    const steps = stepsFor(exercise, settings);
+    const bodyweight = exercise?.equipment === "bodyweight";
+    const box = el("div", "set-entry");
+    box.appendChild(el("div", "hint", `${t("common.edit")} · ${label}`));
+
+    const weightDisplay = bodyweight
+      ? { main: t("common.bodyweight.load"), small: null }
+      : stepperWeightDisplay(exercise, draft.editWeight, settings);
+    const row = el("div", "stepper-row");
+    row.append(
+      stepper(weightDisplay.main, weightDisplay.small, {
+        disabled: bodyweight,
+        onDown: () => {
+          const next = rules.stepDown(draft.editWeight, steps);
+          if (next != null) { draft.editWeight = next; renderCard(); }
+        },
+        onUp: () => {
+          const next = rules.stepUp(draft.editWeight, steps);
+          if (next != null) { draft.editWeight = next; renderCard(); }
+        },
+      }),
+      stepper(String(draft.editReps), t("common.reps"), {
+        disabled: false,
+        onDown: () => { draft.editReps = Math.max(0, draft.editReps - 1); renderCard(); },
+        onUp: () => { draft.editReps += 1; renderCard(); },
+      }),
+    );
+    box.appendChild(row);
+
+    const actions = el("div", "btn-row");
+    const save = el("button", "btn-primary", t("common.save"));
+    save.type = "button";
+    save.addEventListener("click", async () => {
+      save.disabled = true;
+      set.weight = bodyweight ? num(set.weight) : draft.editWeight;
+      set.reps = draft.editReps;
+      await put("sessions", session);
+      draft.editSet = null;
+      renderCard();
+    });
+    const remove = el("button", "btn-secondary", t("common.delete"));
+    remove.type = "button";
+    remove.addEventListener("click", async () => {
+      remove.disabled = true;
+      entry.sets.splice(setIndex, 1);
+      await put("sessions", session);
+      draft.editSet = null;
+      renderCard();
+    });
+    const cancel = el("button", "link", t("common.cancel"));
+    cancel.type = "button";
+    cancel.addEventListener("click", () => {
+      draft.editSet = null;
+      renderCard();
+    });
+    actions.append(save, remove, cancel);
+    box.appendChild(actions);
+    return box;
+  }
+
   function renderCard() {
     card.replaceChildren();
 
     const planned = session.entries.reduce((sum, e) => sum + itemFor(program, e.exerciseId).sets, 0);
-    card.appendChild(el("h2", null, t("today.session.title", { name: session.programName, sets: planned })));
+    card.appendChild(el("h2", null, t("today.session.title", { name: programLabel(session.programName), sets: planned })));
 
     const list = el("div", "ex-list");
     card.appendChild(list);
@@ -1241,6 +1334,7 @@ function renderActive(root, ctx, data, session) {
       draft.entryIndex = activeIndex;
       draft.effort = null;
       draft.dropDismissed = false;
+      draft.editSet = null;
       const entry = activeIndex >= 0 ? session.entries[activeIndex] : null;
       const item = activeIndex >= 0 ? resolveItem(activeIndex) : null;
       const exercise = entry ? exercisesById[entry.exerciseId] : null;
@@ -1295,14 +1389,29 @@ function renderActive(root, ctx, data, session) {
       ? rules.pyramidPlan(item.targetLoad, entry.targetReps, item.sets, steps)
       : null;
 
+    // Logged sets are tappable (v1.6.0): a tap opens an inline editor so a
+    // typo can be fixed mid-session instead of waiting for the log screen.
     let workingSeen = 0;
-    for (const set of entry.sets) {
+    entry.sets.forEach((set, setIndex) => {
       let label;
       if (set.warmup) label = t("common.warmup");
       else if (set.drop) label = t("common.drop");
       else label = t("common.set.n", { n: ++workingSeen });
-      block.appendChild(setLine(exercise, set, label, settings));
-    }
+      if (draft.editSet === setIndex) {
+        block.appendChild(renderSetEditor(entry, setIndex, exercise, label));
+        return;
+      }
+      const line = setLine(exercise, set, label, settings);
+      line.classList.add("pickable");
+      line.style.cursor = "pointer";
+      line.addEventListener("click", () => {
+        draft.editSet = setIndex;
+        draft.editWeight = num(set.weight);
+        draft.editReps = num(set.reps);
+        renderCard();
+      });
+      block.appendChild(line);
+    });
 
     if (plan) {
       for (let i = workingSeen; i < plan.length; i++) {
@@ -1586,6 +1695,23 @@ function restBarRefs() {
   info.append(time, label);
 
   const actions = el("div", "restbar-actions");
+  const sub30 = el("button", "chip ghost", t("rest.sub30"));
+  sub30.type = "button";
+  sub30.addEventListener("click", () => {
+    if (restState.endsAt == null) return;
+    // Undo for a stray +30 tap, or a deliberate shorter rest. Dropping below
+    // "now" means the rest is over: clearRest ends it cleanly (bar hidden,
+    // pending push cancelled) instead of firing a stale alert.
+    if (restState.endsAt - 30000 <= Date.now()) {
+      clearRest();
+      return;
+    }
+    restState.endsAt -= 30000;
+    restState.totalMs = Math.max((restState.totalMs || 0) - 30000, 1);
+    persistRestState();
+    scheduleRestPush(restState.endsAt, t("push.notif.title"), restState.label);
+    tickRestBar();
+  });
   const add30 = el("button", "chip ghost", t("rest.add30"));
   add30.type = "button";
   add30.addEventListener("click", () => {
@@ -1602,7 +1728,7 @@ function restBarRefs() {
   const skip = el("button", "chip ghost", t("rest.skip"));
   skip.type = "button";
   skip.addEventListener("click", () => clearRest());
-  actions.append(add30, skip);
+  actions.append(sub30, add30, skip);
 
   bar.append(ring, info, actions);
   return { bar, progress, time, label };

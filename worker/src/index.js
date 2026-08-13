@@ -392,7 +392,10 @@ export class PushScheduler {
     if (res.ok || res.status === 400 || res.status === 403 || res.status === 404 || res.status === 410) {
       // Delivered, or the subscription is expired/invalid; either way the
       // job is finished. The client re-subscribes on its next toggle/boot.
+      // The success line (status only, never the endpoint) exists so a
+      // `wrangler tail` can positively confirm delivery end to end.
       if (!res.ok) console.error("push rejected", res.status);
+      else console.log("push delivered", res.status);
       await this.ctx.storage.deleteAll();
       return;
     }

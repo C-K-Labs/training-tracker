@@ -18,6 +18,7 @@ import {
 import * as rules from "../rules.js";
 import * as onboarding from "../onboarding.js";
 import { tipFor } from "../tips.js";
+import { exName } from "../names.js";
 import { generateCode, normalizeCode, deriveFromCode, encryptPack, decryptBlob } from "../crypto.js";
 import { isSupported as pushSupported, permissionState, iosNeedsInstall, enableRestPush, disableRestPush } from "../push.js";
 
@@ -110,7 +111,34 @@ function mmss(totalSec) {
 }
 
 function exLabel(ex) {
-  return ex.variant ? `${ex.name} (${ex.variant})` : ex.name;
+  const base = exName(ex);
+  return ex.variant ? `${base} (${ex.variant})` : base;
+}
+
+// Exercise <select> grouped by body part (v1.6.0), canonical part order,
+// localized and sorted labels within each group. Used by every picker that
+// previously listed the whole library flat.
+const PART_ORDER = ["legs", "back", "chest", "shoulders", "arms", "core", "full"];
+
+function exerciseSelect(exercises, selected) {
+  const node = document.createElement("select");
+  for (const part of PART_ORDER) {
+    const inPart = exercises
+      .filter((e) => (e.bodyPart || "full") === part)
+      .sort((a, b) => exLabel(a).localeCompare(exLabel(b)));
+    if (inPart.length === 0) continue;
+    const group = document.createElement("optgroup");
+    group.label = t(`bodypart.${part}`);
+    for (const ex of inPart) {
+      const opt = document.createElement("option");
+      opt.value = ex.id;
+      opt.textContent = exLabel(ex);
+      if (ex.id === selected) opt.selected = true;
+      group.appendChild(opt);
+    }
+    node.appendChild(group);
+  }
+  return node;
 }
 
 function loadConventionFor(equipment) {
@@ -421,7 +449,7 @@ function overridesEditor(box, state, ctx, render) {
     return;
   }
 
-  const picker = selectEl(state.exercises.map((e) => ({ value: e.id, label: exLabel(e) })));
+  const picker = exerciseSelect(state.exercises);
   picker.style.flex = "1 1 140px";
   const max = inputEl("number", "", { step: 0.5, min: 0 });
   max.style.flex = "1 1 80px";
@@ -583,7 +611,7 @@ function restEditor(box, state, ctx, render) {
     return;
   }
 
-  const picker = selectEl(state.exercises.map((e) => ({ value: e.id, label: exLabel(e) })));
+  const picker = exerciseSelect(state.exercises);
   picker.style.flex = "1 1 140px";
   const secs = inputEl("number", 90, { step: 5, min: 10 });
   secs.style.flex = "1 1 90px";
@@ -784,7 +812,7 @@ function itemBlock(program, index, state, ctx, render) {
   wrap.style.paddingLeft = "6px";
   wrap.style.borderLeft = "2px solid var(--line)";
 
-  const picker = selectEl(state.exercises.map((e) => ({ value: e.id, label: exLabel(e) })), item.exerciseId);
+  const picker = exerciseSelect(state.exercises, item.exerciseId);
   picker.addEventListener("change", async () => {
     item.exerciseId = picker.value;
     // Full rerender: the load field's unit basis depends on the exercise.
@@ -886,7 +914,29 @@ function libraryEditor(box, state, ctx, render) {
   // Compound vs isolation (v1.2): explained once here because the tier
   // drives the two rest defaults; auto-classified until explicitly set.
   box.appendChild(el("div", "hint", t("tier.desc")));
-  for (const ex of state.exercises) {
+  // Grouped by body part (v1.6.0): 46+ exercises in one flat list were not
+  // scannable. Canonical part order, localized/sorted names within a group.
+  const grouped = [];
+  for (const part of PART_ORDER) {
+    const inPart = state.exercises
+      .filter((e) => (e.bodyPart || "full") === part)
+      .sort((a, b) => exLabel(a).localeCompare(exLabel(b)));
+    if (inPart.length > 0) grouped.push({ part, inPart });
+  }
+  for (const { part, inPart } of grouped) {
+    const head = el("div", null, t(`bodypart.${part}`));
+    head.style.fontWeight = "700";
+    head.style.marginTop = "10px";
+    box.appendChild(head);
+    for (const ex of inPart) libraryRow(box, ex, state, ctx, render);
+  }
+  if (state.exercises.length === 0) box.appendChild(el("div", "empty", t("common.none")));
+
+  libraryAddForm(box, state, ctx, render);
+}
+
+function libraryRow(box, ex, state, ctx, render) {
+  {
     const line = flexBox();
     line.style.justifyContent = "space-between";
     const meta = `${t(`bodypart.${ex.bodyPart}`)}/${t(`equipment.${ex.equipment}`)}/${t(`today.weight.unit.${ex.unit}`)}`;
@@ -938,21 +988,23 @@ function libraryEditor(box, state, ctx, render) {
     // rendered when the exercise resolves to one (js/tips.js).
     const tipText = tipFor(ex);
     if (tipText) {
-      const tipBtn = el("button", "link", t("tip.label"));
+      const tipBtn = el("button", "link", t("tip.show"));
       tipBtn.type = "button";
       tipBtn.setAttribute("aria-expanded", "false");
       const tipLine = el("div", "hint", tipText);
       tipLine.hidden = true;
       tipBtn.addEventListener("click", () => {
         tipLine.hidden = !tipLine.hidden;
+        tipBtn.textContent = tipLine.hidden ? t("tip.show") : t("tip.hide");
         tipBtn.setAttribute("aria-expanded", String(!tipLine.hidden));
       });
       box.appendChild(tipBtn);
       box.appendChild(tipLine);
     }
   }
-  if (state.exercises.length === 0) box.appendChild(el("div", "empty", t("common.none")));
+}
 
+function libraryAddForm(box, state, ctx, render) {
   const name = inputEl("text", "");
   name.style.flex = "1 1 120px";
   const variant = inputEl("text", "");
@@ -1470,7 +1522,6 @@ function displayCard(state, ctx) {
 
     addRow("lang", {
       title: t("settings.display.lang"),
-      desc: t("settings.display.lang.desc"),
       right: t(`lang.${getLang()}`),
       editor: (box) => {
         const row = el("div", "filter-row");

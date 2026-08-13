@@ -5,9 +5,57 @@
 // Newest entry first. The service worker cache version is bumped separately
 // in sw.js at each deploy.
 
-export const APP_VERSION = "1.5.0";
+export const APP_VERSION = "1.6.0";
 
 export const CHANGELOG = [
+  {
+    version: "1.6.0",
+    date: "2026-08-12",
+    notes: {
+      ko: [
+        "휴식 종료 알림이 실제로 도착합니다 (서버 키 문제 수정. 설정에서 알림 토글을 한 번 껐다 켜 주세요)",
+        "운동명이 앱 언어를 따라갑니다 (직접 가져온 개인 팩의 운동은 그대로 유지)",
+        "운동 목록과 선택창이 부위별로 정리되고, 팁 버튼이 '팁 보기'로 명확해졌습니다",
+        "세션 중에도 기록한 세트를 탭해서 수정/삭제, 완료한 운동도 다시 열기, 휴식 -30초 버튼",
+        "시작 화면 뒤로가기 버튼 중복과 설정에서 코스 생성 시 첫 화면으로 빠지던 문제 수정",
+      ],
+      en: [
+        "Rest-end notifications now actually arrive (server key fixed; toggle notifications off and on once in Settings)",
+        "Exercise names now follow the app language (your own imported pack exercises stay as you named them)",
+        "Exercise lists and pickers are grouped by body part, and the tip button now reads 'Show tip'",
+        "Tap a logged set to edit or delete it mid-session, reopen finished exercises, and a -30s rest button",
+        "Fixed the duplicated back button on the start screen and the wizard backing out to the first-run screen",
+      ],
+      es: [
+        "Los avisos de fin de descanso ahora llegan de verdad (clave del servidor corregida; apaga y enciende el aviso una vez en Ajustes)",
+        "Los nombres de los ejercicios siguen el idioma de la app (los de tu pack personal se mantienen como los nombraste)",
+        "Listas y selectores de ejercicios agrupados por parte del cuerpo, y el botón de consejo ahora dice 'Ver consejo'",
+        "Toca una serie registrada para editarla o borrarla durante la sesión, reabre ejercicios terminados y botón de -30s de descanso",
+        "Corregidos el botón de atrás duplicado en la pantalla inicial y el asistente que volvía a la pantalla de primer uso",
+      ],
+      pt: [
+        "Os avisos de fim do descanso agora chegam de verdade (chave do servidor corrigida; desligue e ligue o aviso uma vez nas Configurações)",
+        "Os nomes dos exercícios seguem o idioma do app (os do seu pack pessoal ficam como você os nomeou)",
+        "Listas e seletores de exercícios agrupados por parte do corpo, e o botão de dica agora diz 'Ver dica'",
+        "Toque numa série registrada para editar ou excluir durante a sessão, reabra exercícios concluídos e botão de -30s de descanso",
+        "Corrigidos o botão de voltar duplicado na tela inicial e o assistente que voltava à tela de primeiro uso",
+      ],
+      ja: [
+        "休憩終了の通知が実際に届くようになりました（サーバー鍵の問題を修正。設定で通知を一度オフ/オンしてください）",
+        "種目名がアプリの言語に追従します（自分で取り込んだパックの種目は付けた名前のまま）",
+        "種目リストと選択画面を部位別に整理し、コツのボタンが「コツを見る」に",
+        "セッション中でも記録済みセットをタップして修正/削除、完了した種目の再オープン、休憩-30秒ボタン",
+        "開始画面の戻るボタン重複と、設定からのコース生成で初回画面に戻る問題を修正",
+      ],
+      zh: [
+        "休息结束通知现在真的会送达（修复了服务器密钥问题；请在设置中把通知开关关掉再打开一次）",
+        "动作名称会跟随应用语言（你自己导入的个人包动作保持原名）",
+        "动作列表和选择器按部位分组，要点按钮改为「查看要点」",
+        "训练中可点按已记录的组进行修改/删除，可重新打开已完成的动作，新增休息-30秒按钮",
+        "修复开始页返回按钮重复、以及从设置生成课程时退回首次启动页的问题",
+      ],
+    },
+  },
   {
     version: "1.5.0",
     date: "2026-08-12",

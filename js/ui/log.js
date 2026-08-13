@@ -12,15 +12,28 @@
 // different in-memory dataset. Mutating affordances (delete) are hidden
 // whenever a guest is active.
 
-import { t } from "../i18n.js";
+import { t, getLang } from "../i18n.js";
 import { getAll, del, put, getSettings, getGuests, getGuestData } from "../store.js";
+import { exName, programLabel } from "../names.js";
 import { workingSets, paceText, formatLoad } from "../rules.js";
 
 export const titleKey = "tab.log";
 export const subKey = "screen.log.sub";
 
 const KINDS = ["all", "weights", "cardio", "calisthenics", "bodyweight"];
-const weekdayFmt = new Intl.DateTimeFormat("ko", { weekday: "short" });
+// Weekday labels follow the UI language (v1.6.0; previously hardcoded "ko").
+// Rebuilt lazily because the language can change while the app is running.
+let weekdayFmt = null;
+let weekdayFmtLang = null;
+
+function weekdayFormatter() {
+  const lang = getLang();
+  if (!weekdayFmt || weekdayFmtLang !== lang) {
+    weekdayFmt = new Intl.DateTimeFormat(lang, { weekday: "short" });
+    weekdayFmtLang = lang;
+  }
+  return weekdayFmt;
+}
 
 // Fixed cardio activity slugs get a translated label; anything else (custom
 // free text, including legacy migrated "running") renders as-is.
@@ -52,7 +65,7 @@ function dayOf(dateISO) {
 }
 
 function weekdayOf(dateISO) {
-  return weekdayFmt.format(new Date(dateISO + "T00:00:00"));
+  return weekdayFormatter().format(new Date(dateISO + "T00:00:00"));
 }
 
 function monthKey(dateISO) {
@@ -172,7 +185,7 @@ export async function mount(root, ctx) {
   // minutes counts on the collapsed row follow the saved data (v1.3.1).
   function rebuildBody(body, session) {
     body.textContent = "";
-    body.appendChild(el("div", "t", session.programName || t(`kind.${session.kind}`)));
+    body.appendChild(el("div", "t", programLabel(session.programName) || t(`kind.${session.kind}`)));
     sessionMeta(body, session);
   }
 
@@ -579,7 +592,7 @@ export async function mount(root, ctx) {
         const item = itemForLog(session, entry.exerciseId);
         const line = el("div", "dl");
         const name = el("span", "n");
-        let nameText = ex ? ex.name : t("common.exercise.deleted");
+        let nameText = ex ? exName(ex) : t("common.exercise.deleted");
         if (ex && ex.variant) nameText += ` (${ex.variant})`;
         if (ex && ex.emphasis) nameText += ` · ${ex.emphasis}`;
         name.textContent = nameText;

@@ -121,6 +121,11 @@ export async function mount(root, ctx, opts = {}) {
 
   const state = {
     step: skipDataStep ? 1 : -1,
+    // Step-0 sub-screen: "choice" | "import" | "restore". Rendered through
+    // the single render() path so exactly one back link exists per screen
+    // (v1.6.0 fix: the old choiceBox.remove() approach left the choice
+    // screen's back link above the appended form, showing two).
+    dataMode: "choice",
     goal: null,
     days: 3,
     experience: null,
@@ -135,6 +140,7 @@ export async function mount(root, ctx, opts = {}) {
 
   function goTo(step) {
     state.step = step;
+    if (step === 0) state.dataMode = "choice";
     render();
   }
 
@@ -167,6 +173,15 @@ export async function mount(root, ctx, opts = {}) {
   function renderDataStep(inner) {
     inner.appendChild(header("onboarding.step0.title", "onboarding.step0.desc"));
 
+    if (state.dataMode === "import") {
+      inner.appendChild(renderImportForm());
+      return;
+    }
+    if (state.dataMode === "restore") {
+      inner.appendChild(renderRestoreForm());
+      return;
+    }
+
     const choiceBox = el("div");
     choiceBox.style.display = "flex";
     choiceBox.style.flexDirection = "column";
@@ -185,15 +200,8 @@ export async function mount(root, ctx, opts = {}) {
     freshBtn.addEventListener("click", () => goTo(1));
     choiceBox.append(importBtn, restoreBtn, freshBtn);
 
-    importBtn.addEventListener("click", () => {
-      choiceBox.remove();
-      inner.appendChild(renderImportForm());
-    });
-
-    restoreBtn.addEventListener("click", () => {
-      choiceBox.remove();
-      inner.appendChild(renderRestoreForm());
-    });
+    importBtn.addEventListener("click", () => { state.dataMode = "import"; render(); });
+    restoreBtn.addEventListener("click", () => { state.dataMode = "restore"; render(); });
 
     inner.appendChild(backLink(() => goTo(-1)));
   }
@@ -338,7 +346,12 @@ export async function mount(root, ctx, opts = {}) {
       ));
     }
     inner.appendChild(list);
-    inner.appendChild(backLink(() => goTo(0)));
+    // Launched from Settings, there is no step 0: back means "close the
+    // wizard and return to where I was", never the first-run data screen
+    // (v1.6.0 fix: it previously always went to step 0).
+    inner.appendChild(backLink(() => {
+      if (skipDataStep) { close(); finish(); } else { goTo(0); }
+    }));
   }
 
   function renderDaysStep(inner) {

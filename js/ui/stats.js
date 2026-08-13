@@ -6,6 +6,7 @@
 
 import { t } from "../i18n.js";
 import { getAll, getSettings, getGuests, getGuestData } from "../store.js";
+import { exName } from "../names.js";
 import {
   weekKey, weeklyBalance, emphasisBreakdown, overshootWarning, workingSets,
   kgToLb, proteinTargetG, proteinCoefDisplay, leanMassKg, weeklyCardioMinutes,
@@ -77,7 +78,8 @@ function svgEl(tag, attrs) {
 // one place responsible for turning that into a rendered label.
 function exerciseLabel(ex) {
   if (ex.deleted) return t("common.exercise.deleted");
-  return ex.variant ? `${ex.name} ${ex.variant}` : ex.name;
+  const base = exName(ex);
+  return ex.variant ? `${base} ${ex.variant}` : base;
 }
 
 function bodyPartLabel(part) {

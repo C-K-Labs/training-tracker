@@ -303,7 +303,6 @@ const ko = {
   "profile.readonly.badge": "읽기 전용",
   "settings.display.title": "표시",
   "settings.display.lang": "언어",
-  "settings.display.lang.desc": "영어 · 스페인어 · 포르투갈어 · 일본어 · 중국어 지원",
   "settings.display.theme": "테마",
   "settings.theme.system": "시스템",
   "settings.theme.light": "라이트",
@@ -394,15 +393,21 @@ const ko = {
   "rest.title": "휴식",
   "rest.next": "다음: {name} {n}세트",
   "rest.add30": "+30초",
+  "rest.sub30": "-30초",
   "rest.skip": "건너뛰기",
+
+  "program.full": "전신",
+  "program.upper": "상체",
+  "program.lower": "하체",
+  "program.push": "푸시",
+  "program.pull": "풀",
+  "program.legs": "레그",
   "push.notif.title": "휴식 끝",
 
   "lang.ko": "한국어",
   "lang.en": "English",
   "lang.es": "Español",
   "lang.pt": "Português",
-  "lang.ja": "日本語",
-  "lang.zh": "简体中文",
   "lang.ja": "日本語",
   "lang.zh": "简体中文",
 
@@ -509,7 +514,8 @@ const ko = {
   "exname.face-pull": "페이스풀",
   "exname.hammer-curl": "해머컬",
 
-  "tip.label": "팁",
+  "tip.show": "팁 보기",
+  "tip.hide": "팁 닫기",
 
   "extip.smith-squat": "발을 바보다 살짝 앞에 두고, 무릎은 발끝 방향을 따라가게. 내려갈 때 엉덩이를 뒤로.",
   "extip.goblet-squat": "덤벨을 가슴에 밀착, 팔꿈치가 무릎 안쪽으로 내려가게. 상체는 세운 채 유지.",
@@ -859,7 +865,6 @@ const en = {
   "profile.readonly.badge": "Read-only",
   "settings.display.title": "Display",
   "settings.display.lang": "Language",
-  "settings.display.lang.desc": "English · Spanish · Portuguese · Japanese · Chinese available",
   "settings.display.theme": "Theme",
   "settings.theme.system": "System",
   "settings.theme.light": "Light",
@@ -950,7 +955,15 @@ const en = {
   "rest.title": "Rest",
   "rest.next": "Next: {name} · Set {n}",
   "rest.add30": "+30s",
+  "rest.sub30": "-30s",
   "rest.skip": "Skip",
+
+  "program.full": "Full Body",
+  "program.upper": "Upper",
+  "program.lower": "Lower",
+  "program.push": "Push",
+  "program.pull": "Pull",
+  "program.legs": "Legs",
   "push.notif.title": "Rest over",
 
   "lang.ko": "한국어",
@@ -1063,7 +1076,8 @@ const en = {
   "exname.face-pull": "Face Pull",
   "exname.hammer-curl": "Hammer Curl",
 
-  "tip.label": "Tip",
+  "tip.show": "Show tip",
+  "tip.hide": "Hide tip",
 
   "extip.smith-squat": "Feet slightly in front of the bar, knees tracking over the toes. Push the hips back as you descend.",
   "extip.goblet-squat": "Hold the dumbbell tight to your chest, elbows traveling inside the knees. Torso stays upright.",
@@ -1413,7 +1427,6 @@ const es = {
   "profile.readonly.badge": "Solo lectura",
   "settings.display.title": "Pantalla",
   "settings.display.lang": "Idioma",
-  "settings.display.lang.desc": "Inglés · español · portugués · japonés · chino disponibles",
   "settings.display.theme": "Tema",
   "settings.theme.system": "Sistema",
   "settings.theme.light": "Claro",
@@ -1504,7 +1517,15 @@ const es = {
   "rest.title": "Descanso",
   "rest.next": "Siguiente: {name} · Serie {n}",
   "rest.add30": "+30s",
+  "rest.sub30": "-30s",
   "rest.skip": "Saltar",
+
+  "program.full": "Cuerpo completo",
+  "program.upper": "Tren superior",
+  "program.lower": "Tren inferior",
+  "program.push": "Empuje",
+  "program.pull": "Tirón",
+  "program.legs": "Pierna",
   "push.notif.title": "Descanso terminado",
 
   "lang.ko": "한국어",
@@ -1617,7 +1638,8 @@ const es = {
   "exname.face-pull": "Face pull",
   "exname.hammer-curl": "Curl martillo",
 
-  "tip.label": "Consejo",
+  "tip.show": "Ver consejo",
+  "tip.hide": "Ocultar consejo",
 
   "extip.smith-squat": "Pies un poco por delante de la barra, rodillas siguiendo la punta de los pies. Lleva la cadera atrás al bajar.",
   "extip.goblet-squat": "Mancuerna pegada al pecho, codos por dentro de las rodillas. Torso erguido.",
@@ -1967,7 +1989,6 @@ const pt = {
   "profile.readonly.badge": "Somente leitura",
   "settings.display.title": "Exibição",
   "settings.display.lang": "Idioma",
-  "settings.display.lang.desc": "Inglês · espanhol · português · japonês · chinês disponíveis",
   "settings.display.theme": "Tema",
   "settings.theme.system": "Sistema",
   "settings.theme.light": "Claro",
@@ -2058,7 +2079,15 @@ const pt = {
   "rest.title": "Descanso",
   "rest.next": "Próximo: {name} · Série {n}",
   "rest.add30": "+30s",
+  "rest.sub30": "-30s",
   "rest.skip": "Pular",
+
+  "program.full": "Corpo inteiro",
+  "program.upper": "Superiores",
+  "program.lower": "Inferiores",
+  "program.push": "Empurrar",
+  "program.pull": "Puxar",
+  "program.legs": "Pernas",
   "push.notif.title": "Descanso terminado",
 
   "lang.ko": "한국어",
@@ -2171,7 +2200,8 @@ const pt = {
   "exname.face-pull": "Face pull",
   "exname.hammer-curl": "Rosca martelo",
 
-  "tip.label": "Dica",
+  "tip.show": "Ver dica",
+  "tip.hide": "Ocultar dica",
 
   "extip.smith-squat": "Pés um pouco à frente da barra, joelhos seguindo a ponta dos pés. Jogue o quadril para trás ao descer.",
   "extip.goblet-squat": "Halter colado ao peito, cotovelos por dentro dos joelhos. Tronco ereto.",
@@ -2521,7 +2551,6 @@ const ja = {
   "profile.readonly.badge": "閲覧のみ",
   "settings.display.title": "表示",
   "settings.display.lang": "言語",
-  "settings.display.lang.desc": "英語 · スペイン語 · ポルトガル語 · 日本語 · 中国語に対応",
   "settings.display.theme": "テーマ",
   "settings.theme.system": "システム",
   "settings.theme.light": "ライト",
@@ -2612,7 +2641,15 @@ const ja = {
   "rest.title": "休憩",
   "rest.next": "次: {name} {n}セット目",
   "rest.add30": "+30秒",
+  "rest.sub30": "-30秒",
   "rest.skip": "スキップ",
+
+  "program.full": "全身",
+  "program.upper": "上半身",
+  "program.lower": "下半身",
+  "program.push": "プッシュ",
+  "program.pull": "プル",
+  "program.legs": "レッグ",
   "push.notif.title": "休憩終了",
 
   "lang.ko": "한국어",
@@ -2725,7 +2762,8 @@ const ja = {
   "exname.face-pull": "フェイスプル",
   "exname.hammer-curl": "ハンマーカール",
 
-  "tip.label": "コツ",
+  "tip.show": "コツを見る",
+  "tip.hide": "コツを閉じる",
 
   "extip.smith-squat": "足はバーのやや前、膝はつま先の向きに。しゃがむときはお尻を後ろへ引く。",
   "extip.goblet-squat": "ダンベルを胸に密着させ、肘は膝の内側へ。上体は立てたまま。",
@@ -3075,7 +3113,6 @@ const zh = {
   "profile.readonly.badge": "只读",
   "settings.display.title": "显示",
   "settings.display.lang": "语言",
-  "settings.display.lang.desc": "支持英语 · 西班牙语 · 葡萄牙语 · 日语 · 中文",
   "settings.display.theme": "主题",
   "settings.theme.system": "跟随系统",
   "settings.theme.light": "浅色",
@@ -3166,7 +3203,15 @@ const zh = {
   "rest.title": "休息",
   "rest.next": "下一组: {name} 第{n}组",
   "rest.add30": "+30秒",
+  "rest.sub30": "-30秒",
   "rest.skip": "跳过",
+
+  "program.full": "全身",
+  "program.upper": "上肢",
+  "program.lower": "下肢",
+  "program.push": "推",
+  "program.pull": "拉",
+  "program.legs": "腿",
   "push.notif.title": "休息结束",
 
   "lang.ko": "한국어",
@@ -3279,7 +3324,8 @@ const zh = {
   "exname.face-pull": "面拉",
   "exname.hammer-curl": "锤式弯举",
 
-  "tip.label": "要点",
+  "tip.show": "查看要点",
+  "tip.hide": "收起要点",
 
   "extip.smith-squat": "双脚略微在杠前，膝盖对准脚尖方向。下蹲时臀部向后坐。",
   "extip.goblet-squat": "哑铃贴紧胸口，手肘落在膝盖内侧。上身保持直立。",

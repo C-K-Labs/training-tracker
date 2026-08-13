@@ -11,7 +11,8 @@
 
 import { t } from "./i18n.js";
 
-const ALIASES = {
+// Exported for js/seed.js, whose i18nKey backfill uses the same id mapping.
+export const ALIASES = {
   "db-ohp": "overhead-press",
   "lat-pulldown-close": "lat-pulldown",
   "pushup-home": "pushup",

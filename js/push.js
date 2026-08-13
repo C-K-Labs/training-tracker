@@ -17,7 +17,10 @@ const PUSH_ENDPOINT = "https://training-tracker-api.ck-labs.workers.dev/push";
 // Identifies this app to the browser's push service. Public by design: it is
 // handed to every client inside the subscribe() call. The matching private
 // key exists only in the Worker's environment and is never in this repo.
-const VAPID_PUBLIC_KEY = "BBdNREH8cNjbol6DjUmieIPb_PjemZu55Xt-BU1HxRptSsleXv7iqFUzvCzFjCShC0Vtf33dfpNATPGxTWyKaWQ";
+// Rotated 2026-08-12 (v1.6.0): the original private secret was stored
+// corrupted, so every push failed server-side; subscriptions made under the
+// old key are migrated by ensureFreshSubscription below.
+const VAPID_PUBLIC_KEY = "BD5Km_LN9Lj_s4Dx_T1ppYnwgv_hTr5NI7QZf1lMpnkird2U3oL53bJaez125a8axcwl11MC_hH9UHtuTR4jumE";
 
 // One pending notification per device is kept server-side, keyed by the
 // subscription, so a new schedule replaces the previous one and the client
@@ -61,17 +64,58 @@ export function iosNeedsInstall() {
   return !standalone;
 }
 
-async function postJson(path, body) {
+// Requests are chained (v1.6.0): logging a set fires cancel-then-schedule
+// back to back, and both address the same server-side scheduler object. Two
+// concurrent fetches can arrive reordered, letting the stale cancel delete
+// the fresh job; serializing through one promise chain preserves call order.
+let postChain = Promise.resolve();
+
+function postJson(path, body) {
+  postChain = postChain.then(async () => {
+    try {
+      const res = await fetch(`${PUSH_ENDPOINT}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) console.warn(`push ${path} rejected`, res.status);
+    } catch {
+      // Offline gym, blocked request, server down: the local rest bar is the
+      // real timer, the push is a convenience on top of it.
+    }
+  });
+  return postChain;
+}
+
+// A subscription made under a previous VAPID key is useless: the server now
+// signs with the rotated key and the push service rejects the mismatch. When
+// permission is already granted, silently replace it (subscribe() needs no
+// user gesture once granted); otherwise drop it so the toggle re-prompts.
+function keyMatches(sub) {
+  const current = sub.options && sub.options.applicationServerKey;
+  if (!current) return false;
+  const a = new Uint8Array(current);
+  const b = urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+async function ensureFreshSubscription(reg, sub) {
+  if (!sub || keyMatches(sub)) return sub;
   try {
-    const res = await fetch(`${PUSH_ENDPOINT}${path}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) console.warn(`push ${path} rejected`, res.status);
+    await sub.unsubscribe();
   } catch {
-    // Offline gym, blocked request, server down: the local rest bar is the
-    // real timer, the push is a convenience on top of it.
+    // Push service already dropped it; subscribing again is what matters.
+  }
+  if (Notification.permission !== "granted") return null;
+  try {
+    return await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+    });
+  } catch {
+    return null;
   }
 }
 
@@ -82,7 +126,8 @@ async function currentSubscription() {
   if (!isSupported()) return null;
   try {
     const reg = await navigator.serviceWorker.ready;
-    cachedSubscription = await reg.pushManager.getSubscription();
+    const sub = await reg.pushManager.getSubscription();
+    cachedSubscription = await ensureFreshSubscription(reg, sub);
     return cachedSubscription;
   } catch {
     return null;
@@ -120,7 +165,7 @@ export async function enableRestPush() {
 
   try {
     const reg = await navigator.serviceWorker.ready;
-    const existing = await reg.pushManager.getSubscription();
+    const existing = await ensureFreshSubscription(reg, await reg.pushManager.getSubscription());
     cachedSubscription = existing || await reg.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
