@@ -1,7 +1,7 @@
 // Service worker: network-first with cache fallback. Fresh code wins when
 // online; the cached copy keeps the app working in a dead-zone gym.
 
-const CACHE = "training-tracker-v25";
+const CACHE = "training-tracker-v26";
 const PRECACHE = [
   "./",
   "./index.html",
@@ -19,6 +19,7 @@ const PRECACHE = [
   "./js/names.js",
   "./js/version.js",
   "./js/ui/today.js",
+  "./js/ui/session.js",
   "./js/ui/log.js",
   "./js/ui/stats.js",
   "./js/ui/settings.js",

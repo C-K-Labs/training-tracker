@@ -14,6 +14,12 @@ import * as rules from "../rules.js";
 export const titleKey = "tab.today";
 export const subKey = "screen.today.sub.idle";
 
+// Session tab (v1.9.0): this module hosts BOTH screens because they share
+// every helper (cards, rest bar, rules glue); js/ui/session.js re-exports
+// the session-facing trio below as its own screen module.
+export const sessionTitleKey = "tab.session";
+export const sessionSubKey = "screen.today.sub.idle";
+
 // Pain area map keys (v1.1.1 polish item 6). These are data keys stored in
 // session.daily.pain, not UI copy; each one resolves to a label through
 // pain.area.<slug> in i18n. Older sessions may carry other (legacy) keys,
@@ -266,8 +272,25 @@ function suggestBanner({ gap, onEnter }) {
 
 // ------------------------------------------------------------- idle view
 
-function renderIdle(root, ctx, data) {
-  const { settings, programs, sessions, exercises, bodyweightRecords, water } = data;
+// Today tab (v1.9.0): quick logs only. The weights session moved to its own
+// tab, so these cards stay reachable while a session is running.
+function renderToday(root, ctx, data) {
+  const { settings, exercises, bodyweightRecords, water } = data;
+  ctx.setSub(t("screen.today.sub.idle", { date: dateLabel() }));
+
+  const defaultOpen = settings.todayDefaultOpen || "none";
+  root.appendChild(el("div", "section-title", t("today.section.training")));
+  root.appendChild(renderCardioCard(ctx, defaultOpen === "cardio"));
+  root.appendChild(renderCalisthenicsCard(ctx, exercises, defaultOpen === "calisthenics"));
+  root.appendChild(el("div", "section-title", t("today.section.body")));
+  root.appendChild(renderWaterCard(ctx, settings, water, defaultOpen === "water"));
+  root.appendChild(renderBodyweightCard(ctx, settings, bodyweightRecords, defaultOpen === "bodyweight"));
+}
+
+// Session tab, no session running: recovery banners plus the start card
+// (always expanded; it is the tab's main content).
+function renderSessionIdle(root, ctx, data) {
+  const { settings, programs, sessions, exercises } = data;
   ctx.setTimer(null);
   ctx.setSub(t("screen.today.sub.idle", { date: dateLabel() }));
 
@@ -284,6 +307,9 @@ function renderIdle(root, ctx, data) {
       action: {
         label: t("today.recovery.exit"),
         onClick: async () => {
+          // Confirm (v1.9.0): a stray tap here silently dropped the whole
+          // recovery week once (only the first comeback session ran reduced).
+          if (!confirm(t("today.recovery.exit.confirm"))) return;
           settings.recovery = { active: false, startedAt: null };
           await saveSettings(settings);
           await ctx.remount();
@@ -302,16 +328,7 @@ function renderIdle(root, ctx, data) {
     }));
   }
 
-  // Two sections (v1.7): training logs together, body upkeep together. Every
-  // card collapses to the same shell; only the settings-chosen one starts open.
-  const defaultOpen = settings.todayDefaultOpen || "weights";
-  root.appendChild(el("div", "section-title", t("today.section.training")));
-  root.appendChild(renderStartCard(ctx, settings, programs, exercises, defaultOpen === "weights"));
-  root.appendChild(renderCardioCard(ctx, defaultOpen === "cardio"));
-  root.appendChild(renderCalisthenicsCard(ctx, exercises, defaultOpen === "calisthenics"));
-  root.appendChild(el("div", "section-title", t("today.section.body")));
-  root.appendChild(renderWaterCard(ctx, settings, water, defaultOpen === "water"));
-  root.appendChild(renderBodyweightCard(ctx, settings, bodyweightRecords, defaultOpen === "bodyweight"));
+  root.appendChild(renderStartCard(ctx, settings, programs, exercises, true));
 }
 
 function renderStartCard(ctx, settings, programs, exercises, open) {
@@ -877,10 +894,6 @@ function renderActive(root, ctx, data, session) {
   }
 
   root.appendChild(renderDailyCard(ctx, session));
-  // Water card is outside the session flow proper: it stays present
-  // regardless of whether a weights session is active (B2). Collapsed here
-  // unless it is the settings-chosen default card, same as the idle view.
-  root.appendChild(renderWaterCard(ctx, settings, water, settings.todayDefaultOpen === "water"));
 
   const card = el("div", "card");
   root.appendChild(card);
@@ -1760,7 +1773,7 @@ function restBarRefs() {
   // scrolls the active exercise into view; the buttons keep their own taps.
   info.style.cursor = "pointer";
   info.addEventListener("click", () => {
-    const tab = document.querySelector('.tab[data-screen="today"]');
+    const tab = document.querySelector('.tab[data-screen="session"]');
     if (tab) tab.click();
     setTimeout(() => {
       const active = document.querySelector(".ex-row.active");
@@ -1864,7 +1877,7 @@ renderRestBar();
 
 // ------------------------------------------------------------------ mount
 
-export async function mount(root, ctx) {
+async function loadData() {
   const [settings, programs, sessions, exercises, bodyweightRecords, water] = await Promise.all([
     getSettings(),
     getAll("programs"),
@@ -1873,7 +1886,7 @@ export async function mount(root, ctx) {
     getAll("bodyweight"),
     getWater(todayISO()),
   ]);
-  const data = {
+  return {
     settings,
     programs: programs.filter((p) => p.kind === "weights"),
     sessions,
@@ -1882,8 +1895,16 @@ export async function mount(root, ctx) {
     bodyweightRecords,
     water,
   };
+}
 
-  const active = findActiveSession(sessions);
+export async function mount(root, ctx) {
+  const data = await loadData();
+  renderToday(root, ctx, data);
+}
+
+export async function mountSession(root, ctx) {
+  const data = await loadData();
+  const active = findActiveSession(data.sessions);
   if (active) renderActive(root, ctx, data, active);
-  else renderIdle(root, ctx, data);
+  else renderSessionIdle(root, ctx, data);
 }

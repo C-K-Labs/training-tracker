@@ -5,9 +5,45 @@
 // Newest entry first. The service worker cache version is bumped separately
 // in sw.js at each deploy.
 
-export const APP_VERSION = "1.8.0";
+export const APP_VERSION = "1.9.0";
 
 export const CHANGELOG = [
+  {
+    version: "1.9.0",
+    date: "2026-08-15",
+    notes: {
+      ko: [
+        "하단 탭이 5개가 되었습니다: 새 '세션' 탭이 웨이트 세션을 전담하고, '오늘' 탭(유산소/맨몸/물/체중)은 세션 진행 중에도 언제든 열 수 있습니다",
+        "시작 스플래시가 최소 1.2초 표시됩니다 (번쩍이고 사라지던 문제)",
+        "회복 주간 종료 버튼에 확인 창이 생겨 실수 탭으로 회복 모드가 꺼지지 않습니다",
+      ],
+      en: [
+        "The bottom bar now has 5 tabs: a new 'Session' tab owns the weights session, and the 'Today' tab (cardio/calisthenics/water/bodyweight) stays reachable mid-session",
+        "The launch splash now shows for at least 1.2 seconds (it used to flash and vanish)",
+        "The recovery-week exit button now asks for confirmation, so a stray tap cannot silently end recovery mode",
+      ],
+      es: [
+        "La barra inferior ahora tiene 5 pestañas: la nueva pestaña 'Sesión' se encarga de la sesión de pesas, y la pestaña 'Hoy' (cardio/calistenia/agua/peso) queda accesible durante la sesión",
+        "El splash de inicio ahora se muestra al menos 1,2 segundos (antes parpadeaba y desaparecía)",
+        "El botón para terminar la semana de recuperación ahora pide confirmación, así un toque accidental no la apaga en silencio",
+      ],
+      pt: [
+        "A barra inferior agora tem 5 abas: a nova aba 'Sessão' cuida da sessão de musculação, e a aba 'Hoje' (cardio/calistenia/água/peso) fica acessível durante a sessão",
+        "A splash de abertura agora aparece por pelo menos 1,2 segundos (antes piscava e sumia)",
+        "O botão de encerrar a semana de recuperação agora pede confirmação, então um toque acidental não a desliga em silêncio",
+      ],
+      ja: [
+        "下部タブが5つになりました。新しい「セッション」タブがウェイトセッションを担当し、「今日」タブ（有酸素/自重/水分/体重）はセッション中でもいつでも開けます",
+        "起動スプラッシュが最低1.2秒表示されます（一瞬で消えていた問題）",
+        "回復週間の終了ボタンに確認ダイアログが付き、誤タップで回復モードが消えなくなりました",
+      ],
+      zh: [
+        "底部标签栏增至5个：新的「训练」标签负责力量训练，「今日」标签（有氧/自重/饮水/体重）在训练进行中也随时可打开",
+        "启动闪屏至少显示1.2秒（之前一闪而过）",
+        "结束恢复周的按钮增加了确认弹窗，误触不会再悄悄关闭恢复模式",
+      ],
+    },
+  },
   {
     version: "1.8.0",
     date: "2026-08-15",

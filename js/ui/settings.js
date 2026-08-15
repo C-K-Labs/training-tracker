@@ -1614,16 +1614,18 @@ function displayCard(state, ctx) {
     });
 
     // Default expanded Today card (v1.7): every Today card collapses to the
-    // same shell; this picks the one that starts open (or none).
+    // same shell; this picks the one that starts open (or none). The weights
+    // card moved to its own always-expanded Session tab in v1.9.0, so a
+    // stored "weights" value now reads as "none".
     const cardOptions = [
-      { value: "weights", label: t("today.start.title") },
       { value: "cardio", label: t("today.cardio.title") },
       { value: "calisthenics", label: t("today.cal.title") },
       { value: "water", label: t("today.water.title") },
       { value: "bodyweight", label: t("today.bw.title") },
       { value: "none", label: t("common.none") },
     ];
-    const cardSelect = selectEl(cardOptions, state.settings.todayDefaultOpen || "weights");
+    const storedCard = state.settings.todayDefaultOpen;
+    const cardSelect = selectEl(cardOptions, cardOptions.some((o) => o.value === storedCard) ? storedCard : "none");
     cardSelect.addEventListener("change", async () => {
       state.settings.todayDefaultOpen = cardSelect.value;
       await commitSettings(state, ctx, { silent: true });

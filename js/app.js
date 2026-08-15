@@ -11,12 +11,13 @@ import { openDB, getSettings, requestPersist, get, put } from "./store.js";
 import { APP_VERSION, CHANGELOG } from "./version.js";
 import { seedIfEmpty, syncLibrary, backfillI18nKeys } from "./seed.js";
 import * as today from "./ui/today.js";
+import * as sessionScreen from "./ui/session.js";
 import * as log from "./ui/log.js";
 import * as stats from "./ui/stats.js";
 import * as settingsScreen from "./ui/settings.js";
 import * as onboarding from "./onboarding.js";
 
-const screens = { today, log, stats, settings: settingsScreen };
+const screens = { today, session: sessionScreen, log, stats, settings: settingsScreen };
 let currentScreen = "today";
 
 const rootEl = document.getElementById("screen-root");
@@ -69,7 +70,8 @@ async function navigate(name) {
   }
   titleEl.textContent = t(mod.titleKey);
   subEl.textContent = mod.subKey ? t(mod.subKey) : "";
-  if (name !== "today") setTimer(null);
+  // The elapsed-session timer belongs to the session screen (v1.9.0).
+  if (name !== "session") setTimer(null);
   rootEl.innerHTML = "";
   const section = document.createElement("section");
   section.className = "screen";
@@ -257,6 +259,7 @@ async function setupInstallBanner(didOnboard) {
 }
 
 async function boot() {
+  const bootStart = Date.now();
   await openDB();
   await seedIfEmpty();
   // v1.5.0: existing installs pick up newly shipped library exercises here
@@ -289,12 +292,16 @@ async function boot() {
     await navigate("today");
   }
 
-  // The static splash (index.html) covered the boot awaits above; the first
-  // real screen is mounted now, so fade it out.
+  // The static splash (index.html) covered the boot awaits above. Boot is
+  // usually so fast the logo just flashed, so hold it to a minimum of ~1.2s
+  // before fading (user-requested pacing, v1.9.0).
   const splash = document.getElementById("splash");
   if (splash) {
-    splash.classList.add("done");
-    setTimeout(() => splash.remove(), 300);
+    const holdMs = Math.max(0, 1200 - (Date.now() - bootStart));
+    setTimeout(() => {
+      splash.classList.add("done");
+      setTimeout(() => splash.remove(), 300);
+    }, holdMs);
   }
 
   // Both run after the screen (or the wizard) is mounted, so the notice
