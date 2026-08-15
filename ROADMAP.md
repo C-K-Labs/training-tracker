@@ -3,7 +3,69 @@
 Single source of truth for project status and what comes next. Update this
 file at the end of every working session.
 
-## Status (2026-08-12, v1.3.3 + v1.4.0)
+## Status (2026-08-15, v1.7.0 ~ v1.12.0)
+
+Six releases across 2026-08-14/15 (commits 06ab68a..83a98c0, sw v23 -> v29,
+test suite 93 -> 97), driven by two real-gym feedback batches. Product
+direction stated by the user this session and now binding: light, accurate
+information above all, easy to access, never complicated.
+
+- v1.7.0: Today tab split into 운동/신체 sections, every card on one
+  collapsible shell (default-open card selectable in settings), session
+  composition preview in the weights card, dual lb/kg target-load inputs
+  with two-way conversion (fixed the ragged numbers row).
+- v1.8.0: rest-bar label-shift fix (Skip showed twice, -30s hidden),
+  rest timer survives other-exercise set saves (owner id on rest state),
+  manual exercise pick survives tab switches, effort editable on logged
+  sets, log folds by month, stats trend picker grouped by body part,
+  every-boot i18nKey backfill (pack-import-after-marker gap) + six
+  dedicated pack exnames, boot splash.
+- v1.9.0: five-tab bar (오늘/세션/기록/통계/설정) with a dedicated Session
+  tab (ui/session.js re-exports from ui/today.js, which hosts both
+  screens), splash minimum 1.2s hold, recovery-exit confirm dialog.
+- v1.10.0: js/recommend.js - course generator driven by the user's own
+  4-week history, conservative starting-load inference (exact 1.0 /
+  same-family same-equipment 0.9 / machine<->cable 0.8, snapped down;
+  per-hand dumbbell never maps to stack/bar totals; guarded by
+  tests/recommend.test.mjs), recovery auto-expiry (recoveryRule.maxWeeks,
+  default 2, per the 1-2 week return-from-layoff protocol).
+- v1.11.0: in-session hold timer (reps/time toggle on bodyweight set
+  entry, start/stop records holdSec, hold sets editable in seconds),
+  cumulative update notice (all entries since last acknowledged version).
+- v1.12.0: js/skills.js skill-goal curricula (muscle-up / planche /
+  front lever / handstand / L-sit, beginner + intermediate; evidence
+  anchors in the module header: RR 3x8-or-15s-hold advancement, muscle-up
+  prereqs 8-10 strict pull-ups + 10-15 dips -> explosive chest-to-bar ->
+  negatives, GMB planche lean->tuck->straddle), CATALOG +8 skill
+  movements with six-language names and tips (LIBRARY_VERSION 4, kept out
+  of generator day templates), hold-by-nature movements auto-open time
+  mode (HOLD_I18N_KEYS), Settings > Data > 세션 공유 (chosen programs +
+  referenced exercise records only, receiver imports via file merge),
+  session-level reordering (rules.sortPrograms order field + editor
+  arrows, applied to picker/editor/stats ordering, survives pack
+  round-trips).
+- Recovery incident closed: backup analysis showed the 45-day comeback ran
+  reduced loads on the first session only because the exit button was
+  tapped between sessions (the only exit path); v1.9 confirm + v1.10
+  auto-expiry are the guards.
+- The user's cloud pack was edited twice with consent (session C
+  rebalance with 4-position push-ups, new bodyweight session); restored
+  and confirmed on device. Sync-code sharing is documented as forbidden;
+  세션 공유 is the sharing path.
+
+Open items after this batch:
+- Real-device push acceptance is STILL pending (toggle cycle, lock-screen
+  + watch check during a session) - carried from v1.6.0.
+- User feedback wanted on: skill curricula composition/difficulty, the
+  recommendation card's picks, reordering UX.
+- Candidates discussed but not committed: %1RM-style cross-session load
+  linking (user asked whether it exists; answered no, offered), share
+  import UX polish (receiver-side naming/collision review), hold stats in
+  the trend charts.
+- Older small items below (targetReps in session editor, install-banner
+  overlay, body-comp smoothing, push polish) remain open.
+
+## Previous status (2026-08-12, v1.3.3 + v1.4.0)
 
 Two releases in one session, both deployed (commits bf862a0 + 2ad4493, sw
 v19 then v20; Worker redeployed with the push scheduler):
@@ -242,8 +304,8 @@ v1 complete and deployed.
 ## How to resume a session
 
 - Tests: `node --test tests/rules.test.mjs tests/gen.test.mjs
-  tests/i18n.test.mjs tests/crypto.test.mjs tests/push.test.mjs` (run from
-  project root).
+  tests/i18n.test.mjs tests/crypto.test.mjs tests/push.test.mjs
+  tests/recommend.test.mjs` (run from project root).
 - User feedback inbox: `gh issue list --repo C-K-Labs/training-tracker-feedback`
 - Worker deploy: `npx wrangler deploy` in worker\ (only when the Worker
   itself changes; app deploys never require it).
