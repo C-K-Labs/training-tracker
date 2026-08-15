@@ -5,9 +5,39 @@
 // Newest entry first. The service worker cache version is bumped separately
 // in sw.js at each deploy.
 
-export const APP_VERSION = "1.10.0";
+export const APP_VERSION = "1.11.0";
 
 export const CHANGELOG = [
+  {
+    version: "1.11.0",
+    date: "2026-08-15",
+    notes: {
+      ko: [
+        "세션 진행 중에도 홀드(초) 기록이 가능합니다: 맨몸 운동에서 시간 모드를 고르면 홀드 시작/정지 타이머로 초가 기록되고, 기록된 홀드 세트는 초 단위로 수정할 수 있습니다",
+        "업데이트 안내가 마지막으로 확인한 버전 이후의 모든 변경 내역을 한 번에 보여줍니다",
+      ],
+      en: [
+        "Holds can now be timed inside a session: pick time mode on a bodyweight exercise and a start/stop timer records the seconds; logged hold sets are editable in seconds",
+        "The update notice now shows every release since the version you last acknowledged, in one view",
+      ],
+      es: [
+        "Los holds ahora se cronometran dentro de la sesión: elige el modo tiempo en un ejercicio de peso corporal y un temporizador de inicio/parada registra los segundos; las series de hold se editan en segundos",
+        "El aviso de actualización ahora muestra todos los cambios desde la última versión que confirmaste, en una sola vista",
+      ],
+      pt: [
+        "Os holds agora podem ser cronometrados na sessão: escolha o modo tempo num exercício de peso corporal e um cronômetro de iniciar/parar registra os segundos; séries de hold são editáveis em segundos",
+        "O aviso de atualização agora mostra todas as mudanças desde a última versão que você confirmou, numa única tela",
+      ],
+      ja: [
+        "セッション中でもホールド（秒）を記録できます。自重種目で時間モードを選ぶと開始/停止タイマーで秒数が記録され、記録済みホールドセットは秒単位で修正できます",
+        "アップデート通知が、最後に確認したバージョン以降のすべての変更をまとめて表示するようになりました",
+      ],
+      zh: [
+        "训练中也能记录保持（秒）：在自重动作中选择时间模式，用开始/停止计时器记录秒数；已记录的保持组可按秒修改",
+        "更新提示现在会一次显示自你上次确认的版本以来的全部更新内容",
+      ],
+    },
+  },
   {
     version: "1.10.0",
     date: "2026-08-15",

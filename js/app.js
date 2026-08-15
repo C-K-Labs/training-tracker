@@ -103,9 +103,17 @@ function el(tag, className, text) {
 // user learns what changed after the service worker quietly swapped in new
 // code. The kv record is written when the notice is closed, not when it is
 // shown, so a reload before closing brings it back.
-function showUpdateNotice() {
-  const entry = CHANGELOG[0];
-  if (!entry) return;
+function showUpdateNotice(sinceVersion) {
+  // Cumulative (v1.11.0): people update at different times, so the notice
+  // covers EVERY release since the version this user last acknowledged,
+  // newest first, capped so a long-dormant install is not walled by history.
+  const entries = [];
+  for (const entry of CHANGELOG) {
+    if (entry.version === sinceVersion) break;
+    entries.push(entry);
+    if (entries.length >= 5) break;
+  }
+  if (entries.length === 0) return;
 
   const overlay = el("div", "onboard-overlay");
   overlay.setAttribute("role", "dialog");
@@ -118,19 +126,24 @@ function showUpdateNotice() {
   const head = el("div", "onboard-header");
   head.appendChild(el("h1", null, t("update.notice.title", { v: `v${APP_VERSION}` })));
   card.appendChild(head);
-  card.appendChild(el("div", "hint", entry.date));
 
   // Patch notes ship in every UI language (js/version.js); English is the
   // fallback for any entry that predates a language.
-  const notes = entry.notes[getLang()] || entry.notes.en || [];
-  const list = document.createElement("ul");
-  list.style.margin = "8px 0";
-  list.style.paddingLeft = "18px";
-  list.style.display = "flex";
-  list.style.flexDirection = "column";
-  list.style.gap = "4px";
-  for (const note of notes) list.appendChild(el("li", null, note));
-  card.appendChild(list);
+  for (const entry of entries) {
+    const sub = el("div", "hint", `v${entry.version} · ${entry.date}`);
+    sub.style.fontWeight = "700";
+    sub.style.marginTop = entry === entries[0] ? "0" : "10px";
+    card.appendChild(sub);
+    const notes = entry.notes[getLang()] || entry.notes.en || [];
+    const list = document.createElement("ul");
+    list.style.margin = "6px 0 0";
+    list.style.paddingLeft = "18px";
+    list.style.display = "flex";
+    list.style.flexDirection = "column";
+    list.style.gap = "4px";
+    for (const note of notes) list.appendChild(el("li", null, note));
+    card.appendChild(list);
+  }
 
   card.appendChild(el("div", "hint", t("settings.about.autoupdate")));
 
@@ -156,7 +169,9 @@ async function handleUpdateNotice(didOnboard) {
     await put("kv", { key: "seenVersion", v: APP_VERSION });
     return;
   }
-  if (!seen || seen.v !== APP_VERSION) showUpdateNotice();
+  // No seen record (a pre-v1.3 install): show only the latest entry rather
+  // than the whole history, by treating the previous release as acknowledged.
+  if (!seen || seen.v !== APP_VERSION) showUpdateNotice(seen ? seen.v : CHANGELOG[1]?.version);
 }
 
 // ------------------------------------------------- install banner (v1.3.0)

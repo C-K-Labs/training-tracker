@@ -933,10 +933,13 @@ function stepper(valueText, unitText, { disabled, onDown, onUp }) {
 
 function setLine(exercise, set, label, settings) {
   const line = el("div", "set-line");
-  const weight = loadText(exercise, set.weight, settings);
+  // Hold sets (v1.11.0) record seconds, not load x reps.
+  const recordText = set.holdSec > 0
+    ? t("today.set.hold", { n: set.holdSec })
+    : t("today.set.record", { w: loadText(exercise, set.weight, settings), r: num(set.reps) });
   line.append(
     el("span", "set-no", label),
-    el("span", null, t("today.set.record", { w: weight, r: num(set.reps) })),
+    el("span", null, recordText),
   );
   if (set.effort) {
     line.appendChild(el("span", `chip ${EFFORT_CHIP[set.effort]}`, t(`effort.${set.effort}`)));
@@ -990,7 +993,7 @@ function renderActive(root, ctx, data, session) {
   // Draft of the set currently being entered. Kept across in-place re-renders
   // of the card, reset whenever the active exercise (or superset side, or
   // pyramid rung) changes. dropDismissed/seenWorking are C1 additions.
-  const draft = { entryIndex: -1, weight: 0, reps: 0, effort: null, dropDismissed: false, seenWorking: 0, phase: "none", editSet: null, editWeight: 0, editReps: 0, editEffort: null };
+  const draft = { entryIndex: -1, weight: 0, reps: 0, effort: null, dropDismissed: false, seenWorking: 0, phase: "none", editSet: null, editWeight: 0, editReps: 0, editEffort: null, holdMode: false, holdSec: 0, holdStartAt: null };
   // Manual exercise selection (v1.2): tapping an incomplete exercise row
   // makes it the active one (e.g. when the machine for the next-in-order
   // exercise is taken). Cleared once that entry completes, falling back to
@@ -1385,28 +1388,37 @@ function renderActive(root, ctx, data, session) {
     const box = el("div", "set-entry");
     box.appendChild(el("div", "hint", `${t("common.edit")} · ${label}`));
 
-    const weightDisplay = bodyweight
-      ? { main: t("common.bodyweight.load"), small: null }
-      : stepperWeightDisplay(exercise, draft.editWeight, settings);
+    const isHold = num(set.holdSec) > 0;
     const row = el("div", "stepper-row");
-    row.append(
-      stepper(weightDisplay.main, weightDisplay.small, {
-        disabled: bodyweight,
-        onDown: () => {
-          const next = rules.stepDown(draft.editWeight, steps);
-          if (next != null) { draft.editWeight = next; renderCard(); }
-        },
-        onUp: () => {
-          const next = rules.stepUp(draft.editWeight, steps);
-          if (next != null) { draft.editWeight = next; renderCard(); }
-        },
-      }),
-      stepper(String(draft.editReps), t("common.reps"), {
+    if (isHold) {
+      row.appendChild(stepper(t("today.set.hold", { n: draft.editReps }), null, {
         disabled: false,
         onDown: () => { draft.editReps = Math.max(0, draft.editReps - 1); renderCard(); },
         onUp: () => { draft.editReps += 1; renderCard(); },
-      }),
-    );
+      }));
+    } else {
+      const weightDisplay = bodyweight
+        ? { main: t("common.bodyweight.load"), small: null }
+        : stepperWeightDisplay(exercise, draft.editWeight, settings);
+      row.append(
+        stepper(weightDisplay.main, weightDisplay.small, {
+          disabled: bodyweight,
+          onDown: () => {
+            const next = rules.stepDown(draft.editWeight, steps);
+            if (next != null) { draft.editWeight = next; renderCard(); }
+          },
+          onUp: () => {
+            const next = rules.stepUp(draft.editWeight, steps);
+            if (next != null) { draft.editWeight = next; renderCard(); }
+          },
+        }),
+        stepper(String(draft.editReps), t("common.reps"), {
+          disabled: false,
+          onDown: () => { draft.editReps = Math.max(0, draft.editReps - 1); renderCard(); },
+          onUp: () => { draft.editReps += 1; renderCard(); },
+        }),
+      );
+    }
     box.appendChild(row);
 
     // Effort is editable too (v1.8.0): a mistapped chip feeds the next-load
@@ -1434,8 +1446,12 @@ function renderActive(root, ctx, data, session) {
     save.type = "button";
     save.addEventListener("click", async () => {
       save.disabled = true;
-      set.weight = bodyweight ? num(set.weight) : draft.editWeight;
-      set.reps = draft.editReps;
+      if (isHold) {
+        set.holdSec = draft.editReps > 0 ? draft.editReps : set.holdSec;
+      } else {
+        set.weight = bodyweight ? num(set.weight) : draft.editWeight;
+        set.reps = draft.editReps;
+      }
       if (editableEffort) set.effort = draft.editEffort;
       await put("sessions", session);
       draft.editSet = null;
@@ -1485,6 +1501,9 @@ function renderActive(root, ctx, data, session) {
       draft.effort = null;
       draft.dropDismissed = false;
       draft.editSet = null;
+      draft.holdMode = false;
+      draft.holdSec = 0;
+      draft.holdStartAt = null;
       const entry = activeIndex >= 0 ? session.entries[activeIndex] : null;
       const item = activeIndex >= 0 ? resolveItem(activeIndex) : null;
       const exercise = entry ? exercisesById[entry.exerciseId] : null;
@@ -1557,7 +1576,8 @@ function renderActive(root, ctx, data, session) {
       line.addEventListener("click", () => {
         draft.editSet = setIndex;
         draft.editWeight = num(set.weight);
-        draft.editReps = num(set.reps);
+        // Hold sets edit their seconds through the same counter slot.
+        draft.editReps = set.holdSec > 0 ? num(set.holdSec) : num(set.reps);
         draft.editEffort = set.effort || null;
         renderCard();
       });
@@ -1583,33 +1603,92 @@ function renderActive(root, ctx, data, session) {
     ));
 
     const bodyweight = exercise?.equipment === "bodyweight";
-    const weightDisplay = bodyweight
-      ? { main: t("common.bodyweight.load"), small: null }
-      : stepperWeightDisplay(exercise, draft.weight, settings);
-    const stepperRow = el("div", "stepper-row");
-    stepperRow.append(
-      stepper(
-        weightDisplay.main,
-        weightDisplay.small,
-        {
-          disabled: bodyweight,
-          onDown: () => {
-            const next = rules.stepDown(draft.weight, steps);
-            if (next != null) { draft.weight = next; renderCard(); }
+
+    // Recording-mode toggle for bodyweight work (v1.11.0): reps (default) or
+    // a live hold timer, so planche/L-sit holds can be timed IN the session
+    // flow instead of only in the calisthenics quick log.
+    if (bodyweight) {
+      const modeSeg = el("div", "seg");
+      const repsBtn = el("button", draft.holdMode ? null : "sel", t("today.cal.mode.reps"));
+      const secBtn = el("button", draft.holdMode ? "sel" : null, t("today.cal.mode.seconds"));
+      repsBtn.type = "button";
+      secBtn.type = "button";
+      const setMode = (hold) => {
+        if (draft.holdMode === hold) return;
+        draft.holdMode = hold;
+        draft.holdStartAt = null;
+        renderCard();
+      };
+      repsBtn.addEventListener("click", () => setMode(false));
+      secBtn.addEventListener("click", () => setMode(true));
+      modeSeg.append(repsBtn, secBtn);
+      entryBox.appendChild(modeSeg);
+    }
+
+    if (bodyweight && draft.holdMode) {
+      const running = draft.holdStartAt != null;
+      const holdRow = el("div", "stepper-row");
+      const secText = (n) => t("today.set.hold", { n });
+      const holdStepper = stepper(secText(draft.holdSec), null, {
+        disabled: running,
+        onDown: () => { draft.holdSec = Math.max(0, draft.holdSec - 1); renderCard(); },
+        onUp: () => { draft.holdSec += 1; renderCard(); },
+      });
+      const holdBtn = el("button", running ? "btn-secondary" : "btn-primary", t(running ? "today.hold.stop" : "today.hold.start"));
+      holdBtn.type = "button";
+      holdBtn.addEventListener("click", () => {
+        if (!draft.holdStartAt) {
+          unlockRestAudio();
+          draft.holdStartAt = Date.now();
+        } else {
+          draft.holdSec = Math.max(0, Math.round((Date.now() - draft.holdStartAt) / 1000));
+          draft.holdStartAt = null;
+        }
+        renderCard();
+      });
+      holdRow.append(holdStepper, holdBtn);
+      entryBox.appendChild(holdRow);
+      if (running) {
+        const valNode = holdStepper.querySelector(".val");
+        const startAt = draft.holdStartAt;
+        const tickHandle = setInterval(() => {
+          // The card re-renders on every interaction; stop with the node.
+          if (!valNode.isConnected || draft.holdStartAt !== startAt) {
+            clearInterval(tickHandle);
+            return;
+          }
+          valNode.textContent = secText(Math.floor((Date.now() - startAt) / 1000));
+        }, 250);
+      }
+    } else {
+      const weightDisplay = bodyweight
+        ? { main: t("common.bodyweight.load"), small: null }
+        : stepperWeightDisplay(exercise, draft.weight, settings);
+      const stepperRow = el("div", "stepper-row");
+      stepperRow.append(
+        stepper(
+          weightDisplay.main,
+          weightDisplay.small,
+          {
+            disabled: bodyweight,
+            onDown: () => {
+              const next = rules.stepDown(draft.weight, steps);
+              if (next != null) { draft.weight = next; renderCard(); }
+            },
+            onUp: () => {
+              const next = rules.stepUp(draft.weight, steps);
+              if (next != null) { draft.weight = next; renderCard(); }
+            },
           },
-          onUp: () => {
-            const next = rules.stepUp(draft.weight, steps);
-            if (next != null) { draft.weight = next; renderCard(); }
-          },
-        },
-      ),
-      stepper(String(draft.reps), t("common.reps"), {
-        disabled: false,
-        onDown: () => { draft.reps = Math.max(0, draft.reps - 1); renderCard(); },
-        onUp: () => { draft.reps += 1; renderCard(); },
-      }),
-    );
-    entryBox.appendChild(stepperRow);
+        ),
+        stepper(String(draft.reps), t("common.reps"), {
+          disabled: false,
+          onDown: () => { draft.reps = Math.max(0, draft.reps - 1); renderCard(); },
+          onUp: () => { draft.reps += 1; renderCard(); },
+        }),
+      );
+      entryBox.appendChild(stepperRow);
+    }
 
     // Load-convention reminder (v1.2): what the entered number means for
     // this equipment (bar excluded / per hand / stack pin).
@@ -1632,21 +1711,27 @@ function renderActive(root, ctx, data, session) {
     }
     entryBox.appendChild(effortRow);
 
+    const holdActive = bodyweight && draft.holdMode;
     const doneBtn = el("button", "btn-primary", t("today.set.done"));
     doneBtn.type = "button";
-    doneBtn.disabled = !(isWarmup || draft.effort);
+    doneBtn.disabled = !(isWarmup || draft.effort)
+      || draft.holdStartAt != null
+      || (holdActive && draft.holdSec <= 0);
     doneBtn.addEventListener("click", async () => {
       doneBtn.disabled = true;
       // AudioContext must be created/resumed synchronously inside this user
       // gesture (before any await) or iOS will refuse to let it play later.
       unlockRestAudio();
-      entry.sets.push({
-        weight: bodyweight ? 0 : num(draft.weight),
-        reps: num(draft.reps),
-        effort: draft.effort,
-        warmup: isWarmup,
-      });
+      entry.sets.push(holdActive
+        ? { weight: 0, reps: 0, holdSec: num(draft.holdSec), effort: draft.effort, warmup: isWarmup }
+        : {
+            weight: bodyweight ? 0 : num(draft.weight),
+            reps: num(draft.reps),
+            effort: draft.effort,
+            warmup: isWarmup,
+          });
       draft.effort = null;
+      draft.holdSec = 0;
       await put("sessions", session);
 
       const nowComplete = entryState(entry, item).complete;
