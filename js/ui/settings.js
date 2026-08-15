@@ -723,20 +723,19 @@ function programBlock(program, state, ctx, render) {
   return block;
 }
 
-// Target-load field (A3): edits in the active display unit when it differs
-// from the exercise's storedUnit ("both" mode always edits in storedUnit,
-// per rules.parseLoadInput's contract), with a formatLoad hint underneath
-// showing the stored value (and its conversion) regardless of edit mode.
-function targetLoadField(item, exercise, settings) {
+// Target-load editor (v1.7, replaces the A3 single-field-plus-hint version):
+// one box per unit, lb and kg side by side, and typing in either auto-fills
+// the other. The old formatLoad hint under a single field gave that field
+// extra height and made the numbers row ragged; two same-height fields keep
+// the row on one line. Storage stays in the exercise's storedUnit at the
+// same 2-decimal precision parseLoadInput used.
+function targetLoadField(item, exercise) {
   const storedUnit = exercise?.unit === "kg" ? "kg" : "lb";
-  const displayUnit = settings.displayUnit || "both";
-  const editValue = displayUnit === "both" || displayUnit === storedUnit
-    ? item.targetLoad
-    : (storedUnit === "kg" ? rules.kgToLb(item.targetLoad) : rules.lbToKg(item.targetLoad));
-  const { field, control } = numberField(t("settings.program.item.load"), editValue, { min: 0, step: 0.5 });
-  const hint = el("div", "hint", rules.formatLoad(item.targetLoad, storedUnit, displayUnit));
-  field.appendChild(hint);
-  return { field, control, hint, storedUnit, displayUnit };
+  const lbValue = storedUnit === "lb" ? item.targetLoad : rules.kgToLb(item.targetLoad);
+  const kgValue = storedUnit === "kg" ? item.targetLoad : rules.lbToKg(item.targetLoad);
+  const lb = numberField(`${t("settings.program.item.load")} (lb)`, lbValue, { min: 0, step: 0.5 });
+  const kg = numberField(`${t("settings.program.item.load")} (kg)`, kgValue, { min: 0, step: 0.5 });
+  return { storedUnit, lb, kg };
 }
 
 // Method picker (C1): segmented control with a one-line tradeoff description
@@ -823,12 +822,15 @@ function itemBlock(program, index, state, ctx, render) {
   wrap.appendChild(methodField(program, index, state, ctx, render));
 
   const nums = flexBox();
+  // Bottom-align the input boxes: a label that wraps to two lines (long
+  // translations) must not push its box out of the shared row line.
+  nums.style.alignItems = "flex-end";
   const sets = numberField(t("common.sets"), item.sets, { min: 1, step: 1 });
   const reps = numberField(t("common.reps"), item.reps === "max" ? "" : item.reps, { min: 1, step: 1 });
-  const load = targetLoadField(item, exercise, state.settings);
+  const load = targetLoadField(item, exercise);
   const warmup = numberField(t("common.warmup"), item.warmupSets, { min: 0, step: 1 });
   reps.control.disabled = item.reps === "max";
-  nums.append(sets.field, reps.field, load.field, warmup.field);
+  nums.append(sets.field, reps.field, load.lb.field, load.kg.field, warmup.field);
   wrap.appendChild(nums);
 
   sets.control.addEventListener("change", async () => {
@@ -839,11 +841,19 @@ function itemBlock(program, index, state, ctx, render) {
     item.reps = numValue(reps.control, 8);
     await saveProgram(program, ctx, null, { silent: true });
   });
-  load.control.addEventListener("change", async () => {
-    item.targetLoad = rules.parseLoadInput(load.control.value, load.storedUnit, load.displayUnit);
-    load.hint.textContent = rules.formatLoad(item.targetLoad, load.storedUnit, load.displayUnit);
+  const commitLoad = async (fromUnit) => {
+    const typed = fromUnit === "lb" ? load.lb.control : load.kg.control;
+    const other = fromUnit === "lb" ? load.kg.control : load.lb.control;
+    const v = Math.max(0, numValue(typed, 0));
+    const stored = fromUnit === load.storedUnit
+      ? v
+      : (fromUnit === "lb" ? rules.lbToKg(v, { round: false }) : rules.kgToLb(v, { round: false }));
+    item.targetLoad = Math.round(stored * 100) / 100;
+    other.value = String(fromUnit === "lb" ? rules.lbToKg(v) : rules.kgToLb(v));
     await saveProgram(program, ctx, null, { silent: true });
-  });
+  };
+  load.lb.control.addEventListener("change", () => commitLoad("lb"));
+  load.kg.control.addEventListener("change", () => commitLoad("kg"));
   warmup.control.addEventListener("change", async () => {
     item.warmupSets = numValue(warmup.control, item.warmupSets);
     await saveProgram(program, ctx, null, { silent: true });
@@ -1600,6 +1610,28 @@ function displayCard(state, ctx) {
       title: t("settings.display.bwunit"),
       desc: t("settings.display.bwunit.desc"),
       right: bwSeg,
+      rerender: render,
+    });
+
+    // Default expanded Today card (v1.7): every Today card collapses to the
+    // same shell; this picks the one that starts open (or none).
+    const cardOptions = [
+      { value: "weights", label: t("today.start.title") },
+      { value: "cardio", label: t("today.cardio.title") },
+      { value: "calisthenics", label: t("today.cal.title") },
+      { value: "water", label: t("today.water.title") },
+      { value: "bodyweight", label: t("today.bw.title") },
+      { value: "none", label: t("common.none") },
+    ];
+    const cardSelect = selectEl(cardOptions, state.settings.todayDefaultOpen || "weights");
+    cardSelect.addEventListener("change", async () => {
+      state.settings.todayDefaultOpen = cardSelect.value;
+      await commitSettings(state, ctx, { silent: true });
+    });
+    rowEl(list, open, "defaultcard", {
+      title: t("settings.display.defaultcard"),
+      desc: t("settings.display.defaultcard.desc"),
+      right: cardSelect,
       rerender: render,
     });
   }

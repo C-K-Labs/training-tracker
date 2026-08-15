@@ -302,32 +302,58 @@ function renderIdle(root, ctx, data) {
     }));
   }
 
-  root.appendChild(renderStartCard(ctx, settings, programs, exercises));
-  root.appendChild(renderWaterCard(ctx, settings, water));
-  root.appendChild(renderCardioCard(ctx));
-  root.appendChild(renderBodyweightCard(ctx, settings, bodyweightRecords));
-  root.appendChild(renderCalisthenicsCard(ctx, exercises));
+  // Two sections (v1.7): training logs together, body upkeep together. Every
+  // card collapses to the same shell; only the settings-chosen one starts open.
+  const defaultOpen = settings.todayDefaultOpen || "weights";
+  root.appendChild(el("div", "section-title", t("today.section.training")));
+  root.appendChild(renderStartCard(ctx, settings, programs, exercises, defaultOpen === "weights"));
+  root.appendChild(renderCardioCard(ctx, defaultOpen === "cardio"));
+  root.appendChild(renderCalisthenicsCard(ctx, exercises, defaultOpen === "calisthenics"));
+  root.appendChild(el("div", "section-title", t("today.section.body")));
+  root.appendChild(renderWaterCard(ctx, settings, water, defaultOpen === "water"));
+  root.appendChild(renderBodyweightCard(ctx, settings, bodyweightRecords, defaultOpen === "bodyweight"));
 }
 
-function renderStartCard(ctx, settings, programs, exercises) {
-  const card = el("div", "card");
-  card.appendChild(el("h2", null, t("today.start.title")));
+function renderStartCard(ctx, settings, programs, exercises, open) {
+  const { card, body } = quickCard(t("today.start.title"), { open });
 
   const weightPrograms = programs.filter((p) => p.kind === "weights");
   if (weightPrograms.length === 0) {
-    card.appendChild(el("div", "empty", t("today.start.empty")));
+    body.appendChild(el("div", "empty", t("today.start.empty")));
     return card;
   }
 
   const byId = Object.fromEntries((exercises || []).map((e) => [e.id, e]));
   let selected = weightPrograms[0];
-  const estimateEl = el("div", null);
-  estimateEl.style.color = "var(--ink2)";
-  estimateEl.style.fontSize = "13px";
-  const showEstimate = () => {
+  const estimateEl = el("div", "hint");
+  const previewEl = el("div", "preview-list");
+  // Composition preview (v1.7): the selected session's exercises with the
+  // same warm-up + setsxreps + load notation the in-session list uses, so
+  // which session to start can be judged before starting it.
+  const showSelected = () => {
     estimateEl.textContent = t("today.start.estimate", {
       n: rules.estimateSessionMinutes(selected, settings, byId),
     });
+    previewEl.replaceChildren();
+    const items = selected.items || [];
+    if (items.length === 0) {
+      previewEl.appendChild(el("div", "empty", t("common.none")));
+      return;
+    }
+    for (const item of items) {
+      const exercise = byId[item.exerciseId] || null;
+      const line = el("div", "preview-line");
+      const name = el("div", "name");
+      name.appendChild(el("span", null, exercise ? exName(exercise) : t("common.exercise.deleted")));
+      const badge = methodBadge(item.method);
+      if (badge) name.appendChild(badge);
+      const warmups = num(item.warmupSets);
+      const setsText = warmups > 0
+        ? `${t("today.meta.warmup", { n: warmups })} + ${item.sets}×${repsText(item.reps)}`
+        : `${item.sets}×${repsText(item.reps)}`;
+      line.append(name, el("div", "meta", `${setsText} · ${loadText(exercise, item.targetLoad, settings)}`));
+      previewEl.appendChild(line);
+    }
   };
   const row = el("div", "filter-row");
   for (const program of weightPrograms) {
@@ -338,18 +364,15 @@ function renderStartCard(ctx, settings, programs, exercises) {
       selected = program;
       for (const other of row.children) other.classList.remove("sel");
       chip.classList.add("sel");
-      showEstimate();
+      showSelected();
     });
     row.appendChild(chip);
   }
-  card.appendChild(row);
-  showEstimate();
-  estimateEl.style.marginTop = "8px";
-  card.appendChild(estimateEl);
+  showSelected();
+  body.append(row, estimateEl, previewEl);
 
   const start = el("button", "btn-primary", t("today.start.button"));
   start.type = "button";
-  start.style.marginTop = "10px";
   start.addEventListener("click", async () => {
     start.disabled = true;
     await put("sessions", {
@@ -371,30 +394,31 @@ function renderStartCard(ctx, settings, programs, exercises) {
     });
     await ctx.remount();
   });
-  card.appendChild(start);
+  body.appendChild(start);
   return card;
 }
 
-function quickCard(titleText) {
-  const card = el("details", "card");
-  const summary = el("summary", null, titleText);
-  summary.style.cursor = "pointer";
-  summary.style.fontWeight = "700";
+// Uniform collapsible shell for every Today card (v1.7): details/summary
+// with a shared header style, an optional right-side summary value that
+// stays visible while collapsed (e.g. water progress), and one `open`
+// exception chosen by settings.todayDefaultOpen.
+function quickCard(titleText, { open = false } = {}) {
+  const card = el("details", "card qcard");
+  if (open) card.open = true;
+  const summary = document.createElement("summary");
+  const val = el("span", "qcard-val", "");
+  summary.append(el("span", "qcard-title", titleText), val);
   card.appendChild(summary);
-  const body = el("div", null, null);
-  body.style.display = "flex";
-  body.style.flexDirection = "column";
-  body.style.gap = "10px";
-  body.style.marginTop = "10px";
+  const body = el("div", "qcard-body");
   card.appendChild(body);
-  return { card, body };
+  return { card, body, val };
 }
 
 // Cardio quick log (B1): activity chips (fixed set + free-text custom),
 // required minutes, optional distance/HR, RPE (reuses the effort 3-chip
 // scale), free note. Pace is computed live from minutes+distance.
-function renderCardioCard(ctx) {
-  const { card, body } = quickCard(t("today.cardio.title"));
+function renderCardioCard(ctx, open) {
+  const { card, body } = quickCard(t("today.cardio.title"), { open });
 
   let activity = CARDIO_ACTIVITIES[0];
   let rpe = null;
@@ -491,13 +515,14 @@ function renderCardioCard(ctx) {
   return card;
 }
 
-// Water card (B2): always visible on Today, independent of session state.
-// Cup buttons show filled state up to the current amount; tapping an empty
-// cup adds one cupMl, tapping a filled cup removes one. More cups than the
-// target render once the target is exceeded (overshoot is allowed, not capped).
-function renderWaterCard(ctx, settings, water) {
-  const card = el("div", "card");
-  card.appendChild(el("h2", null, t("today.water.title")));
+// Water card (B2): always present on Today, independent of session state.
+// Collapsible since v1.7, with the current amount summarized in the header
+// so the collapsed card still shows progress at a glance. Cup buttons show
+// filled state up to the current amount; tapping an empty cup adds one
+// cupMl, tapping a filled cup removes one. More cups than the target render
+// once the target is exceeded (overshoot is allowed, not capped).
+function renderWaterCard(ctx, settings, water, open) {
+  const { card, body, val } = quickCard(t("today.water.title"), { open });
 
   let ml = water?.ml || 0;
   const target = settings.waterTargetMl || 2000;
@@ -505,7 +530,7 @@ function renderWaterCard(ctx, settings, water) {
 
   const cupsRow = el("div", "cup-row");
   const countLine = el("div", "cup-count", "");
-  card.append(cupsRow, countLine);
+  body.append(cupsRow, countLine);
 
   function render() {
     cupsRow.replaceChildren();
@@ -525,6 +550,7 @@ function renderWaterCard(ctx, settings, water) {
       cupsRow.appendChild(btn);
     }
     countLine.textContent = t("today.water.count", { ml, target });
+    val.textContent = t("today.water.short", { ml, target });
   }
 
   render();
@@ -535,8 +561,8 @@ function renderWaterCard(ctx, settings, water) {
 // (converted to kg for storage); optional body fat % and muscle mass (also
 // entered in the bodyweight unit, stored kg). Shows the protein target (B3)
 // computed from the latest bodyweight entry, independent of what's typed here.
-function renderBodyweightCard(ctx, settings, bodyweightRecords) {
-  const { card, body } = quickCard(t("today.bw.title"));
+function renderBodyweightCard(ctx, settings, bodyweightRecords, open) {
+  const { card, body } = quickCard(t("today.bw.title"), { open });
   const unit = settings.bodyweightUnit === "lb" ? "lb" : "kg";
 
   const weight = numberInput("", { min: 0, step: 0.1 });
@@ -581,8 +607,8 @@ function renderBodyweightCard(ctx, settings, bodyweightRecords) {
   return card;
 }
 
-function renderCalisthenicsCard(ctx, exercises) {
-  const { card, body } = quickCard(t("today.cal.title"));
+function renderCalisthenicsCard(ctx, exercises, open) {
+  const { card, body } = quickCard(t("today.cal.title"), { open });
   const options = exercises.filter((e) => e.equipment === "bodyweight");
 
   if (options.length === 0) {
@@ -850,9 +876,10 @@ function renderActive(root, ctx, data, session) {
   }
 
   root.appendChild(renderDailyCard(ctx, session));
-  // Water card is outside the session flow proper: it stays visible
-  // regardless of whether a weights session is active (B2).
-  root.appendChild(renderWaterCard(ctx, settings, water));
+  // Water card is outside the session flow proper: it stays present
+  // regardless of whether a weights session is active (B2). Collapsed here
+  // unless it is the settings-chosen default card, same as the idle view.
+  root.appendChild(renderWaterCard(ctx, settings, water, settings.todayDefaultOpen === "water"));
 
   const card = el("div", "card");
   root.appendChild(card);

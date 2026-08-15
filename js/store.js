@@ -158,6 +158,10 @@ export const DEFAULT_SETTINGS = {
   // Rest-end push notifications (v1.4): written true only after the browser
   // granted notification permission and a push subscription exists.
   restPushEnabled: false,
+  // Which Today-tab card starts expanded: "weights" | "cardio" |
+  // "calisthenics" | "water" | "bodyweight" | "none". Every card collapses
+  // to the same details/summary shell; this names the one exception.
+  todayDefaultOpen: "weights",
 };
 
 export async function getSettings() {

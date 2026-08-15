@@ -5,9 +5,45 @@
 // Newest entry first. The service worker cache version is bumped separately
 // in sw.js at each deploy.
 
-export const APP_VERSION = "1.6.1";
+export const APP_VERSION = "1.7.0";
 
 export const CHANGELOG = [
+  {
+    version: "1.7.0",
+    date: "2026-08-14",
+    notes: {
+      ko: [
+        "오늘 탭이 운동/신체 두 섹션으로 정리되고 모든 카드가 같은 접이식 카드로 통일되었습니다 (기본으로 펼칠 카드는 설정에서 선택, 물 카드는 접힌 상태에서도 섭취량 표시)",
+        "웨이트 기록 카드에서 세션을 고르면 구성(운동, 세트x횟수, 목표중량)을 시작 전에 미리 볼 수 있습니다",
+        "세션 편집의 목표중량이 lb/kg 두 칸으로 바뀌어 한쪽에 입력하면 다른 쪽이 자동 변환되고, 입력칸 줄이 한 줄로 정렬됩니다",
+      ],
+      en: [
+        "The Today tab is grouped into Training and Body sections, with every card sharing the same collapsible style (pick the default expanded card in Settings; the water card shows your intake even while collapsed)",
+        "Picking a session in the Weights log card now previews its composition (exercises, sets x reps, target load) before you start",
+        "Target load in the session editor is now two boxes, lb and kg: typing in either fills the other, and the input row stays on one line",
+      ],
+      es: [
+        "La pestaña Hoy se agrupa en secciones de Entrenamiento y Cuerpo, y todas las tarjetas comparten el mismo estilo plegable (elige en Ajustes la tarjeta expandida por defecto; la de agua muestra el consumo aun plegada)",
+        "Al elegir una sesión en la tarjeta de pesas ahora se ve su composición (ejercicios, series x repeticiones, carga objetivo) antes de empezar",
+        "La carga objetivo del editor de sesiones ahora son dos casillas, lb y kg: al escribir en una se rellena la otra, y la fila queda alineada",
+      ],
+      pt: [
+        "A aba Hoje foi agrupada em seções de Treino e Corpo, e todos os cartões compartilham o mesmo estilo recolhível (escolha nas Configurações o cartão expandido por padrão; o de água mostra o consumo mesmo recolhido)",
+        "Ao escolher uma sessão no cartão de musculação agora dá para ver a composição (exercícios, séries x repetições, carga alvo) antes de começar",
+        "A carga alvo do editor de sessões agora são duas caixas, lb e kg: digitando em uma a outra é preenchida, e a linha fica alinhada",
+      ],
+      ja: [
+        "「今日」タブがトレーニング/身体の2セクションに整理され、全カードが同じ折りたたみ式に統一されました（最初から開くカードは設定で選択、水分カードは閉じたままでも摂取量を表示）",
+        "ウェイト記録カードでセッションを選ぶと、開始前に構成（種目、セットx回数、目標重量）を確認できます",
+        "セッション編集の目標重量がlb/kgの2枠になり、片方に入力するともう片方が自動換算され、入力欄が一列に揃います",
+      ],
+      zh: [
+        "今日页分为训练/身体两个分区，所有卡片统一为同样的折叠卡片（默认展开的卡片可在设置中选择，饮水卡片折叠时也显示饮水量）",
+        "在力量训练记录卡片中选择训练后，开始前即可预览其构成（动作、组数x次数、目标重量）",
+        "训练编辑中的目标重量改为 lb/kg 两个输入框，输入任一侧另一侧自动换算，输入行保持对齐",
+      ],
+    },
+  },
   {
     version: "1.6.1",
     date: "2026-08-13",
