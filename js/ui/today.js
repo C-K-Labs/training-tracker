@@ -11,6 +11,14 @@ import { tipFor } from "../tips.js";
 import { exName, programLabel } from "../names.js";
 import * as rules from "../rules.js";
 import { recommendInput, userLoadsByKey, inferCourseLoads, buildCourse } from "../recommend.js";
+import { SKILLS, skillExerciseRecord } from "../skills.js";
+
+// Hold-by-nature movements (matched by i18nKey so pack ids and library ids
+// both resolve): the in-session set entry defaults these to time mode.
+const HOLD_I18N_KEYS = new Set([
+  "exname.planche-lean", "exname.tuck-planche", "exname.l-sit",
+  "exname.wall-handstand-hold", "exname.plank", "exname.tuck-front-lever",
+]);
 
 export const titleKey = "tab.today";
 export const subKey = "screen.today.sub.idle";
@@ -343,6 +351,81 @@ async function renderSessionIdle(root, ctx, data) {
 
   root.appendChild(renderStartCard(ctx, settings, programs, exercises, true));
   root.appendChild(renderRecommendCard(ctx, data));
+  root.appendChild(renderSkillCard(ctx, data));
+}
+
+// Skill-goal programs (v1.12.0): curated calisthenics curricula from
+// js/skills.js (evidence anchors live there). Programs reference library
+// exercise ids directly - no prefixed copies - so existing pull-up/hold
+// history stays connected; adoption inserts any missing library record.
+function renderSkillCard(ctx, data) {
+  const { exercisesById } = data;
+  const { card, body } = quickCard(t("skill.title"), { open: false });
+  body.appendChild(el("div", "hint", t("skill.rule")));
+
+  let selectedSkill = SKILLS[0].id;
+  let selectedLevel = "beginner";
+  const skillRow = el("div", "filter-row");
+  const levelSeg = el("div", "seg");
+  const prereqEl = el("div", "hint");
+  const previewEl = el("div", "preview-list");
+  const skillChips = new Map();
+  const levelBtns = new Map();
+
+  const exFor = (key) => exercisesById[key] || skillExerciseRecord(key);
+
+  const showPreview = () => {
+    for (const [id, chip] of skillChips) chip.classList.toggle("sel", id === selectedSkill);
+    for (const [lv, btn] of levelBtns) btn.classList.toggle("sel", lv === selectedLevel);
+    prereqEl.textContent = t(`skill.prereq.${selectedSkill}`);
+    previewEl.replaceChildren();
+    const skill = SKILLS.find((s) => s.id === selectedSkill);
+    for (const item of skill.levels[selectedLevel]) {
+      const line = el("div", "preview-line");
+      const name = el("div", "name");
+      name.appendChild(el("span", null, exName(exFor(item.key))));
+      line.append(name, el("div", "meta", `${item.sets}×${repsText(item.reps)}`));
+      previewEl.appendChild(line);
+    }
+  };
+
+  for (const skill of SKILLS) {
+    const chip = el("button", "filter", t(`skill.${skill.id}`));
+    chip.type = "button";
+    chip.addEventListener("click", () => { selectedSkill = skill.id; showPreview(); });
+    skillChips.set(skill.id, chip);
+    skillRow.appendChild(chip);
+  }
+  for (const level of ["beginner", "advanced"]) {
+    const btn = el("button", null, t(`skill.level.${level}`));
+    btn.type = "button";
+    btn.addEventListener("click", () => { selectedLevel = level; showPreview(); });
+    levelBtns.set(level, btn);
+    levelSeg.appendChild(btn);
+  }
+
+  const adopt = el("button", "btn-primary", t("recommend.adopt"));
+  adopt.type = "button";
+  adopt.addEventListener("click", async () => {
+    adopt.disabled = true;
+    const skill = SKILLS.find((s) => s.id === selectedSkill);
+    const items = skill.levels[selectedLevel];
+    for (const item of items) {
+      if (!exercisesById[item.key]) await put("exercises", skillExerciseRecord(item.key));
+    }
+    await put("programs", {
+      id: newId("skill"),
+      name: `${t(`skill.${selectedSkill}`)} · ${t(`skill.level.${selectedLevel}`)}`,
+      kind: "weights",
+      items: items.map((i) => ({ exerciseId: i.key, sets: i.sets, reps: i.reps, targetLoad: 0, warmupSets: 0, method: null })),
+    });
+    ctx.showToast(t("recommend.adopted"));
+    await ctx.remount();
+  });
+
+  body.append(skillRow, levelSeg, prereqEl, previewEl, adopt);
+  showPreview();
+  return card;
 }
 
 // Curated-program recommendation (v1.10.0): the course generator driven by
@@ -423,7 +506,7 @@ function renderRecommendCard(ctx, data) {
 function renderStartCard(ctx, settings, programs, exercises, open) {
   const { card, body } = quickCard(t("today.start.title"), { open });
 
-  const weightPrograms = programs.filter((p) => p.kind === "weights");
+  const weightPrograms = rules.sortPrograms(programs.filter((p) => p.kind === "weights"));
   if (weightPrograms.length === 0) {
     body.appendChild(el("div", "empty", t("today.start.empty")));
     return card;
@@ -1501,12 +1584,13 @@ function renderActive(root, ctx, data, session) {
       draft.effort = null;
       draft.dropDismissed = false;
       draft.editSet = null;
-      draft.holdMode = false;
       draft.holdSec = 0;
       draft.holdStartAt = null;
       const entry = activeIndex >= 0 ? session.entries[activeIndex] : null;
       const item = activeIndex >= 0 ? resolveItem(activeIndex) : null;
       const exercise = entry ? exercisesById[entry.exerciseId] : null;
+      // Hold-by-nature movements open in time mode (v1.12.0).
+      draft.holdMode = !!(exercise && exercise.equipment === "bodyweight" && HOLD_I18N_KEYS.has(exercise.i18nKey));
       const d = defaultDraftFor(entry, item, exercise);
       draft.weight = d.weight;
       draft.reps = d.reps;

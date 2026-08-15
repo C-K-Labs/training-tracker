@@ -121,6 +121,21 @@ export const CATALOG = {
   "crunch": { nameKo: "크런치", bodyPart: "core", equipment: "bodyweight", compound: false, i18nKey: "exname.crunch" },
   "plank": { nameKo: "플랭크", bodyPart: "core", equipment: "bodyweight", compound: false, i18nKey: "exname.plank" },
   "hanging-leg-raise": { nameKo: "행잉 레그레이즈", bodyPart: "core", equipment: "bodyweight", compound: false, i18nKey: "exname.hanging-leg-raise" },
+
+  // ---- calisthenics skill work (v1.12.0) ----
+  // Library + skill-goal programs (js/skills.js) only: deliberately NOT in
+  // the day templates above, so generated gym courses are unchanged.
+  // planche-lean / tuck-planche / l-sit ids match the personal-pack ids that
+  // already exist in the wild (v1.8.0 backfill), so syncLibrary's id-merge
+  // never duplicates them.
+  "planche-lean": { nameKo: "플란치 린", bodyPart: "shoulders", equipment: "bodyweight", compound: false, i18nKey: "exname.planche-lean" },
+  "tuck-planche": { nameKo: "턱 플란치", bodyPart: "shoulders", equipment: "bodyweight", compound: false, i18nKey: "exname.tuck-planche" },
+  "l-sit": { nameKo: "L싯", bodyPart: "core", equipment: "bodyweight", compound: false, i18nKey: "exname.l-sit" },
+  "pseudo-planche-pushup": { nameKo: "슈도 플란치 푸시업", bodyPart: "shoulders", equipment: "bodyweight", compound: false, i18nKey: "exname.pseudo-planche-pushup" },
+  "high-pullup": { nameKo: "하이 풀업", bodyPart: "back", equipment: "bodyweight", compound: true, i18nKey: "exname.high-pullup" },
+  "mu-negative": { nameKo: "머슬업 네거티브", bodyPart: "back", equipment: "bodyweight", compound: true, i18nKey: "exname.mu-negative" },
+  "tuck-front-lever": { nameKo: "턱 프론트레버", bodyPart: "back", equipment: "bodyweight", compound: false, i18nKey: "exname.tuck-front-lever" },
+  "wall-handstand-pushup": { nameKo: "월 핸드스탠드 푸시업", bodyPart: "shoulders", equipment: "bodyweight", compound: true, i18nKey: "exname.wall-handstand-pushup" },
 };
 
 export function loadConventionFor(equipment) {

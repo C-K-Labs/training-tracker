@@ -257,9 +257,11 @@ const PROGRAM_METHODS = ["pyramid", "superset", "dropset"];
 function sanitizeProgram(p) {
   if (!p || typeof p !== "object" || typeof p.id !== "string" || typeof p.name !== "string") return null;
   const kinds = ["weights", "cardio", "calisthenics"];
+  const order = typeof p.order === "number" && Number.isFinite(p.order) ? p.order : undefined;
   return {
     id: p.id,
     name: p.name,
+    ...(order === undefined ? {} : { order }),
     kind: kinds.includes(p.kind) ? p.kind : "weights",
     items: Array.isArray(p.items)
       ? p.items.filter((i) => i && typeof i.exerciseId === "string").map((i) => {

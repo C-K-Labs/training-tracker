@@ -442,6 +442,17 @@ export function weeklyCardioMinutes(sessions, weekKeyStr) {
 // remaining logged exercises by recency (most-recent session first). Only
 // exercises with at least one weights-session entry are candidates at all,
 // same restriction the prior most-recent-use-only order used. Orphaned
+// Program display order (v1.12.0): explicit order field first (set by the
+// settings reorder buttons), programs saved before ordering existed sort
+// last by id so their relative order never silently changes.
+export function sortPrograms(programs) {
+  return [...(programs || [])].sort((a, b) => {
+    const ao = typeof a.order === "number" ? a.order : Infinity;
+    const bo = typeof b.order === "number" ? b.order : Infinity;
+    return ao === bo ? String(a.id).localeCompare(String(b.id)) : ao - bo;
+  });
+}
+
 // exercise ids (no longer present in exercisesById, polish item 9) stay
 // candidates too, resolved to a { id, deleted: true } placeholder; the UI
 // layer is responsible for rendering a fallback name for it.

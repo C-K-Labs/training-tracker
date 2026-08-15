@@ -5,9 +5,51 @@
 // Newest entry first. The service worker cache version is bumped separately
 // in sw.js at each deploy.
 
-export const APP_VERSION = "1.11.0";
+export const APP_VERSION = "1.12.0";
 
 export const CHANGELOG = [
+  {
+    version: "1.12.0",
+    date: "2026-08-15",
+    notes: {
+      ko: [
+        "세션 탭에 스킬 목표 카드: 머슬업, 플란체, 프론트 레버, 핸드스탠드, L싯의 입문/중급 커리큘럼을 검증된 진행 기준(3x8 또는 홀드 15초 이상 시 다음 단계)으로 제공합니다",
+        "설정 > 데이터 > 세션 공유: 선택한 세션 구성만 파일로 내보내 친구와 교환할 수 있습니다 (운동 기록 등 개인 데이터 제외)",
+        "설정 > 세션 편집에서 세션 순서를 화살표로 변경할 수 있고, 세션 선택에도 그대로 반영됩니다",
+        "홀드 성격 운동(플란치 린, L싯, 플랭크 등)은 세트 입력이 자동으로 시간 모드로 열립니다",
+      ],
+      en: [
+        "Skill goals card on the Session tab: beginner/intermediate curricula for muscle-up, planche, front lever, handstand, and L-sit, with evidence-based advancement standards (3x8 or 15s+ holds)",
+        "Settings > Data > Share sessions: export only chosen session setups as a file to trade with friends (no personal history included)",
+        "Sessions can be reordered with arrows in Settings > Session editor, reflected in the session picker",
+        "Hold-type movements (planche lean, L-sit, plank and friends) open the set entry in time mode automatically",
+      ],
+      es: [
+        "Tarjeta de metas de habilidad en la pestaña Sesión: currículos inicial/intermedio para muscle-up, planche, front lever, pino y L-sit, con estándares de progresión con base en evidencia (3x8 o holds de 15s+)",
+        "Ajustes > Datos > Compartir sesiones: exporta solo las sesiones elegidas como archivo para intercambiar con amigos (sin historial personal)",
+        "Las sesiones se pueden reordenar con flechas en Ajustes > Editor de sesiones, reflejado en el selector",
+        "Los movimientos de sostén (planche lean, L-sit, plancha y similares) abren la entrada de series en modo tiempo automáticamente",
+      ],
+      pt: [
+        "Cartão de metas de habilidade na aba Sessão: currículos iniciante/intermediário para muscle-up, planche, front lever, parada de mão e L-sit, com padrões de progressão baseados em evidência (3x8 ou holds de 15s+)",
+        "Configurações > Dados > Compartilhar sessões: exporte só as sessões escolhidas como arquivo para trocar com amigos (sem histórico pessoal)",
+        "As sessões podem ser reordenadas com setas em Configurações > Editor de sessões, refletido no seletor",
+        "Movimentos de sustentação (planche lean, L-sit, prancha e afins) abrem a entrada de séries no modo tempo automaticamente",
+      ],
+      ja: [
+        "セッションタブにスキル目標カード: マッスルアップ・プランシェ・フロントレバー・倒立・Lシットの入門/中級カリキュラムを、根拠ある進行基準（3x8またはホールド15秒以上で次段階）で提供します",
+        "設定 > データ > セッション共有: 選んだセッション構成だけをファイルで書き出して友人と交換できます（個人記録は含まれません）",
+        "設定 > セッション編集で矢印によりセッションの順序を変更でき、セッション選択にも反映されます",
+        "ホールド系種目（プランシェリーン、Lシット、プランクなど）はセット入力が自動で時間モードになります",
+      ],
+      zh: [
+        "训练页新增技能目标卡片：双力臂、俄挺、前水平、倒立、L支撑的入门/中级课程，采用有依据的进阶标准（3x8或保持15秒以上进入下一阶段）",
+        "设置 > 数据 > 分享训练：仅导出所选训练配置为文件与朋友交换（不含个人记录）",
+        "设置 > 训练编辑中可用箭头调整训练顺序，并同步反映在训练选择中",
+        "保持类动作（俄挺前倾、L支撑、平板支撑等）的组数输入会自动以时间模式打开",
+      ],
+    },
+  },
   {
     version: "1.11.0",
     date: "2026-08-15",

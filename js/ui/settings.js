@@ -12,13 +12,13 @@
 import { t, getLang, setLang, availableLangs } from "../i18n.js";
 import { APP_VERSION, CHANGELOG } from "../version.js";
 import {
-  getSettings, saveSettings, getAll, put, del, newId, exportPack, importPack,
-  importGuestPack, getGuests, deleteGuest,
+  getSettings, saveSettings, getAll, put, del, newId, bulkPut, exportPack, importPack,
+  importGuestPack, getGuests, deleteGuest, PACK_FORMAT_VERSION,
 } from "../store.js";
 import * as rules from "../rules.js";
 import * as onboarding from "../onboarding.js";
 import { tipFor } from "../tips.js";
-import { exName } from "../names.js";
+import { exName, programLabel } from "../names.js";
 import { generateCode, normalizeCode, deriveFromCode, encryptPack, decryptBlob } from "../crypto.js";
 import { isSupported as pushSupported, permissionState, iosNeedsInstall, enableRestPush, disableRestPush } from "../push.js";
 
@@ -660,10 +660,10 @@ async function saveProgram(program, ctx, rerender, { silent = false } = {}) {
 }
 
 function sessionsEditor(box, state, ctx, render) {
-  const weightPrograms = state.programs.filter((p) => p.kind === "weights");
-  for (const program of weightPrograms) {
-    box.appendChild(programBlock(program, state, ctx, render));
-  }
+  const weightPrograms = rules.sortPrograms(state.programs.filter((p) => p.kind === "weights"));
+  weightPrograms.forEach((program, index) => {
+    box.appendChild(programBlock(program, state, ctx, render, { list: weightPrograms, index }));
+  });
   if (weightPrograms.length === 0) box.appendChild(el("div", "empty", t("today.start.empty")));
 
   const addProgram = el("button", "btn-primary", t("common.add"));
@@ -677,7 +677,7 @@ function sessionsEditor(box, state, ctx, render) {
   box.appendChild(addProgram);
 }
 
-function programBlock(program, state, ctx, render) {
+function programBlock(program, state, ctx, render, reorder) {
   const block = el("div");
   block.style.display = "flex";
   block.style.flexDirection = "column";
@@ -690,7 +690,36 @@ function programBlock(program, state, ctx, render) {
     program.name = name.value;
     await saveProgram(program, ctx);
   });
-  block.appendChild(fieldEl(t("settings.program.name"), name));
+  const nameRow = flexBox();
+  const nameField = fieldEl(t("settings.program.name"), name);
+  nameField.style.flex = "1";
+  nameRow.appendChild(nameField);
+
+  // Session-level reorder (v1.12.0): the session picker and this editor
+  // both follow rules.sortPrograms. A swap writes explicit order fields to
+  // EVERY listed program so pre-ordering records cannot jump around.
+  if (reorder) {
+    const { list, index } = reorder;
+    const move = async (delta) => {
+      const j = index + delta;
+      if (j < 0 || j >= list.length) return;
+      list.forEach((p, k) => { p.order = k; });
+      [list[index].order, list[j].order] = [j, index];
+      await bulkPut("programs", list);
+      state.programs = await getAll("programs");
+      render();
+    };
+    const up = el("button", "link", "↑");
+    up.type = "button";
+    up.disabled = index === 0;
+    up.addEventListener("click", () => move(-1));
+    const down = el("button", "link", "↓");
+    down.type = "button";
+    down.disabled = index === list.length - 1;
+    down.addEventListener("click", () => move(1));
+    nameRow.append(up, down);
+  }
+  block.appendChild(nameRow);
 
   program.items.forEach((_, index) => {
     block.appendChild(itemBlock(program, index, state, ctx, render));
@@ -1108,6 +1137,12 @@ function dataCard(state, ctx) {
       editor: (box) => profilesEditor(box, state, ctx, render),
     });
 
+    addRow("share", {
+      title: t("settings.data.share"),
+      desc: t("settings.data.share.desc"),
+      editor: (box) => shareEditor(box, state, ctx),
+    });
+
     addRow("file", {
       title: t("settings.data.file"),
       desc: t("settings.data.file.desc"),
@@ -1364,42 +1399,87 @@ function downloadPack(text, fileName) {
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-async function runFileExport(state, ctx, render) {
-  const pack = await exportPack();
-  const text = JSON.stringify(pack, null, 2);
-  const fileName = `training-tracker-${isoDate(new Date())}.ttpack`;
-
-  let shared = false;
-  // Share sheet only on touch-primary devices (iOS/Android, where a download
-  // is awkward or impossible); desktop keeps the plain download.
+// Shared delivery for pack files: share sheet on touch-primary devices
+// (iOS/Android, where a download is awkward or impossible), plain download
+// elsewhere. Returns "delivered" | "aborted" | "error".
+async function deliverPackFile(text, fileName) {
   const touchPrimary = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
   if (touchPrimary && typeof navigator.canShare === "function" && typeof File === "function") {
     const file = new File([text], fileName, { type: "application/octet-stream" });
     if (navigator.canShare({ files: [file] })) {
       try {
         await navigator.share({ files: [file] });
-        shared = true;
+        return "delivered";
       } catch (err) {
-        // Dismissing the share sheet is a choice, not a failure: leave the
-        // last-backup date alone and say nothing.
-        if (err && err.name === "AbortError") return;
+        // Dismissing the share sheet is a choice, not a failure.
+        if (err && err.name === "AbortError") return "aborted";
         // Any other share failure falls through to the download path below.
       }
     }
   }
-
-  if (!shared) {
-    try {
-      downloadPack(text, fileName);
-    } catch {
-      ctx.showToast(t("settings.data.file.share.err"));
-      return;
-    }
+  try {
+    downloadPack(text, fileName);
+    return "delivered";
+  } catch {
+    return "error";
   }
+}
 
+async function runFileExport(state, ctx, render) {
+  const pack = await exportPack();
+  const text = JSON.stringify(pack, null, 2);
+  const outcome = await deliverPackFile(text, `training-tracker-${isoDate(new Date())}.ttpack`);
+  if (outcome === "aborted") return;
+  if (outcome === "error") {
+    ctx.showToast(t("settings.data.file.share.err"));
+    return;
+  }
   state.settings.lastBackupAt = new Date().toISOString();
   await commitSettings(state, ctx);
   render();
+}
+
+// Session-only share (v1.12.0): exports ONLY the chosen session programs
+// plus the exercise records their items reference. No sessions, bodyweight,
+// or water records: two people can trade programs without trading personal
+// history. targetLoad numbers ARE included (the sharer's working weights);
+// the receiver's own progression rules take over from the first session.
+function shareEditor(box, state, ctx) {
+  const weightPrograms = rules.sortPrograms(state.programs.filter((p) => p.kind === "weights"));
+  if (weightPrograms.length === 0) {
+    box.appendChild(el("div", "empty", t("common.none")));
+    return;
+  }
+  box.appendChild(el("div", "hint", t("settings.data.share.hint")));
+
+  const checks = [];
+  for (const program of weightPrograms) {
+    const check = inputEl("checkbox", true);
+    const label = el("label");
+    label.style.display = "flex";
+    label.style.alignItems = "center";
+    label.style.gap = "6px";
+    label.append(check, el("span", null, programLabel(program.name)));
+    box.appendChild(label);
+    checks.push({ program, check });
+  }
+
+  const run = el("button", "btn-primary", t("settings.data.share.run"));
+  run.type = "button";
+  run.addEventListener("click", async () => {
+    const programs = checks.filter((c) => c.check.checked).map((c) => c.program);
+    if (programs.length === 0) return;
+    const usedIds = new Set(programs.flatMap((p) => (p.items || []).map((i) => i.exerciseId)));
+    const pack = {
+      formatVersion: PACK_FORMAT_VERSION,
+      exportedAt: new Date().toISOString(),
+      exercises: state.exercises.filter((e) => usedIds.has(e.id)),
+      programs,
+    };
+    const outcome = await deliverPackFile(JSON.stringify(pack, null, 2), `training-tracker-sessions-${isoDate(new Date())}.ttpack`);
+    if (outcome === "error") ctx.showToast(t("settings.data.file.share.err"));
+  });
+  box.appendChild(run);
 }
 
 // Strips a file's extension for the default guest name, e.g.

@@ -11,6 +11,7 @@ import {
   weekKey, weeklyBalance, emphasisBreakdown, overshootWarning, workingSets,
   kgToLb, proteinTargetG, proteinCoefDisplay, leanMassKg, weeklyCardioMinutes,
   orderTrendExercises,
+  sortPrograms,
 } from "../rules.js";
 
 export const titleKey = "tab.stats";
@@ -221,7 +222,7 @@ function weekTile(sessions) {
 // recency. Orphaned exerciseIds resolve to a { id, deleted: true }
 // placeholder via rules.orderTrendExercises; exerciseLabel renders it.
 function trendExercises(sessions, exercisesById, programs) {
-  const weightPrograms = (programs || []).filter((p) => p.kind === "weights");
+  const weightPrograms = sortPrograms((programs || []).filter((p) => p.kind === "weights"));
   return orderTrendExercises(weightPrograms, sessions, exercisesById).slice(0, MAX_TREND_EXERCISES);
 }
 

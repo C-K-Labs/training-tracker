@@ -15,7 +15,8 @@ import { ALIASES } from "./tips.js";
 // Bump when the shipped catalog grows so syncLibrary runs once per upgrade.
 // v1: the original 10-exercise inline seed. v2: the 46-exercise catalog.
 // v3: i18nKey backfill so pre-v1.5 records localize (see syncLibrary).
-export const LIBRARY_VERSION = 3;
+// v4: calisthenics skill work (planche/lever/muscle-up/handstand movements).
+export const LIBRARY_VERSION = 4;
 
 export const DEFAULT_EXERCISES = Object.entries(CATALOG).map(([key, ex]) => ({
   id: key,
