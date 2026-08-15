@@ -10,6 +10,7 @@ import { scheduleRestPush, cancelRestPush } from "../push.js";
 import { tipFor } from "../tips.js";
 import { exName, programLabel } from "../names.js";
 import * as rules from "../rules.js";
+import { recommendInput, userLoadsByKey, inferCourseLoads, buildCourse } from "../recommend.js";
 
 export const titleKey = "tab.today";
 export const subKey = "screen.today.sub.idle";
@@ -289,7 +290,7 @@ function renderToday(root, ctx, data) {
 
 // Session tab, no session running: recovery banners plus the start card
 // (always expanded; it is the tab's main content).
-function renderSessionIdle(root, ctx, data) {
+async function renderSessionIdle(root, ctx, data) {
   const { settings, programs, sessions, exercises } = data;
   ctx.setTimer(null);
   ctx.setSub(t("screen.today.sub.idle", { date: dateLabel() }));
@@ -298,6 +299,18 @@ function renderSessionIdle(root, ctx, data) {
   const done = completedWeights(sessions);
   const lastCompleted = done[done.length - 1] || null;
   const gap = lastCompleted ? rules.gapDays(lastCompleted.date, today) : 0;
+
+  // Auto-expiry (v1.10.0): return-from-layoff loading is a 1-2 week
+  // protocol, not a permanent state (reference 3.6). Past maxWeeks the mode
+  // ends itself with a toast instead of waiting on the manual exit button.
+  if (settings.recovery.active && settings.recovery.startedAt) {
+    const maxWeeks = settings.recoveryRule.maxWeeks ?? 2;
+    if (rules.recoveryWeek(settings.recovery.startedAt, today) > maxWeeks) {
+      settings.recovery = { active: false, startedAt: null };
+      await saveSettings(settings);
+      ctx.showToast(t("today.recovery.expired", { n: maxWeeks }));
+    }
+  }
 
   if (settings.recovery.active) {
     root.appendChild(recoveryBanner({
@@ -329,6 +342,82 @@ function renderSessionIdle(root, ctx, data) {
   }
 
   root.appendChild(renderStartCard(ctx, settings, programs, exercises, true));
+  root.appendChild(renderRecommendCard(ctx, data));
+}
+
+// Curated-program recommendation (v1.10.0): the course generator driven by
+// the user's own history, with starting loads inferred from their known
+// lifts (js/recommend.js). Collapsed by default under the start card.
+function renderRecommendCard(ctx, data) {
+  const { settings, sessions, programs, exercisesById } = data;
+  const { card, body } = quickCard(t("recommend.title"), { open: false });
+
+  const rec = recommendInput(sessions);
+  body.appendChild(el("div", "hint", rec.hasHistory
+    ? t("recommend.reason", { n: rec.days, m: rec.minutes })
+    : t("recommend.reason.none")));
+
+  const loadsByKey = userLoadsByKey(programs, exercisesById);
+  let selectedDays = rec.days;
+  const row = el("div", "filter-row");
+  const previewEl = el("div");
+  const chips = new Map();
+
+  const showPreview = () => {
+    for (const [d, chip] of chips) chip.classList.toggle("sel", d === selectedDays);
+    previewEl.replaceChildren();
+    const idPrefix = "rec-preview";
+    const course = buildCourse(selectedDays, rec.minutes, idPrefix);
+    inferCourseLoads(course, loadsByKey, settings, idPrefix);
+    const genExById = byId(course.exercises);
+    for (const program of course.programs) {
+      previewEl.appendChild(el("div", "section-title", programLabel(program.name)));
+      const listEl = el("div", "preview-list");
+      for (const item of program.items) {
+        const exercise = genExById[item.exerciseId];
+        const line = el("div", "preview-line");
+        const name = el("div", "name");
+        name.appendChild(el("span", null, exercise ? exName(exercise) : ""));
+        const warmups = num(item.warmupSets);
+        const setsText = warmups > 0
+          ? `${t("today.meta.warmup", { n: warmups })} + ${item.sets}×${repsText(item.reps)}`
+          : `${item.sets}×${repsText(item.reps)}`;
+        line.append(name, el("div", "meta", `${setsText} · ${loadText(exercise, item.targetLoad, settings)}`));
+        listEl.appendChild(line);
+      }
+      previewEl.appendChild(listEl);
+    }
+  };
+
+  for (const d of [2, 3, 4, 5, 6]) {
+    const chip = el("button", "filter", d === rec.days
+      ? t("recommend.freq.badge", { n: d })
+      : t("recommend.freq", { n: d }));
+    chip.type = "button";
+    chip.addEventListener("click", () => { selectedDays = d; showPreview(); });
+    chips.set(d, chip);
+    row.appendChild(chip);
+  }
+
+  const hint = el("div", "hint", t("recommend.load.hint"));
+  const adopt = el("button", "btn-primary", t("recommend.adopt"));
+  adopt.type = "button";
+  adopt.addEventListener("click", async () => {
+    adopt.disabled = true;
+    const idPrefix = `rec${Date.now().toString(36)}`;
+    const course = buildCourse(selectedDays, rec.minutes, idPrefix);
+    inferCourseLoads(course, loadsByKey, settings, idPrefix);
+    for (const ex of course.exercises) await put("exercises", ex);
+    for (const program of course.programs) await put("programs", program);
+    settings.restOverrides = { ...(settings.restOverrides || {}), ...course.restOverrides };
+    await saveSettings(settings);
+    ctx.showToast(t("recommend.adopted"));
+    await ctx.remount();
+  });
+
+  body.append(row, previewEl, hint, adopt);
+  showPreview();
+  return card;
 }
 
 function renderStartCard(ctx, settings, programs, exercises, open) {
@@ -1906,5 +1995,5 @@ export async function mountSession(root, ctx) {
   const data = await loadData();
   const active = findActiveSession(data.sessions);
   if (active) renderActive(root, ctx, data, active);
-  else renderSessionIdle(root, ctx, data);
+  else await renderSessionIdle(root, ctx, data);
 }

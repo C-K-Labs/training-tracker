@@ -5,9 +5,45 @@
 // Newest entry first. The service worker cache version is bumped separately
 // in sw.js at each deploy.
 
-export const APP_VERSION = "1.9.0";
+export const APP_VERSION = "1.10.0";
 
 export const CHANGELOG = [
+  {
+    version: "1.10.0",
+    date: "2026-08-15",
+    notes: {
+      ko: [
+        "세션 탭에 추천 프로그램 카드가 생겼습니다: 최근 4주의 실제 운동 빈도와 세션 길이에 맞춘 분할을 제안하고, 미리보기 후 내 세션으로 추가할 수 있습니다",
+        "추천 프로그램의 시작 무게는 기존 기록의 같은/비슷한 운동에서 보수적으로 가져와 자동 기입됩니다",
+        "회복 주간이 2주(설정 가능)를 넘기면 자동으로 일반 모드로 돌아갑니다",
+      ],
+      en: [
+        "The Session tab gains a recommended-programs card: splits tuned to your actual training frequency and session length over the last 4 weeks, with a preview and one-tap adoption",
+        "Recommended programs auto-fill conservative starting loads taken from the same or similar lifts in your records",
+        "Recovery mode now ends itself after 2 weeks (configurable) instead of waiting on the manual exit",
+      ],
+      es: [
+        "La pestaña Sesión gana una tarjeta de programas recomendados: divisiones ajustadas a tu frecuencia y duración reales de las últimas 4 semanas, con vista previa y adopción en un toque",
+        "Los programas recomendados rellenan cargas iniciales conservadoras tomadas de ejercicios iguales o similares de tus registros",
+        "El modo de recuperación ahora termina solo tras 2 semanas (configurable) en lugar de esperar la salida manual",
+      ],
+      pt: [
+        "A aba Sessão ganha um cartão de programas recomendados: divisões ajustadas à sua frequência e duração reais das últimas 4 semanas, com prévia e adoção em um toque",
+        "Os programas recomendados preenchem cargas iniciais conservadoras tiradas de exercícios iguais ou parecidos dos seus registros",
+        "O modo de recuperação agora termina sozinho após 2 semanas (configurável) em vez de esperar a saída manual",
+      ],
+      ja: [
+        "セッションタブにおすすめプログラムカードが追加: 直近4週間の実際の頻度とセッション時間に合わせた分割を提案し、プレビューしてワンタップで追加できます",
+        "おすすめプログラムの開始重量は、既存記録の同じ/近い種目から控えめに自動入力されます",
+        "回復モードは2週間（設定可能）を過ぎると自動的に通常モードへ戻ります",
+      ],
+      zh: [
+        "训练页新增推荐计划卡片：按最近4周的实际训练频率和时长推荐分化方案，可预览并一键添加",
+        "推荐计划会从你记录中相同或相近的动作保守地自动填入起始重量",
+        "恢复模式超过2周（可配置）后会自动回到正常模式",
+      ],
+    },
+  },
   {
     version: "1.9.0",
     date: "2026-08-15",

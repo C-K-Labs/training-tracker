@@ -142,7 +142,9 @@ export const DEFAULT_SETTINGS = {
   // "flat" repeats 50%.
   warmupStyle: "ramp",
   restOverrides: {}, // exerciseId -> seconds
-  recoveryRule: { gapDays: 14, factor: 0.83 },
+  // maxWeeks (v1.10.0): recovery mode auto-expires after this many weeks
+  // (return-from-layoff loading is a 1-2 week protocol, reference 3.6).
+  recoveryRule: { gapDays: 14, factor: 0.83, maxWeeks: 2 },
   recovery: { active: false, startedAt: null },
   lastBackupAt: null,
   // Bodyweight unit (B4): independent of displayUnit (which governs load
