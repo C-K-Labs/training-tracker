@@ -5,9 +5,63 @@
 // Newest entry first. The service worker cache version is bumped separately
 // in sw.js at each deploy.
 
-export const APP_VERSION = "1.7.0";
+export const APP_VERSION = "1.8.0";
 
 export const CHANGELOG = [
+  {
+    version: "1.8.0",
+    date: "2026-08-15",
+    notes: {
+      ko: [
+        "휴식 바 버튼 라벨이 밀려 '건너뛰기'가 두 개로 보이던 문제 수정 (-30초/+30초/건너뛰기 복구)",
+        "휴식 중에 다른 운동의 세트를 기록해도 진행 중인 휴식 타이머가 초기화되지 않습니다",
+        "다른 탭을 다녀와도 진행 중이던 운동 선택이 유지되고, 휴식 바를 탭하면 진행 중인 운동으로 바로 이동합니다",
+        "기록한 세트의 힘듦도 수정할 수 있고, 세션 중 일일 체크 카드가 접이식이 되었습니다",
+        "기록 탭이 월별로 접히고, 통계의 중량 추이 종목 선택이 부위별 목록으로 바뀌었습니다",
+        "개인 팩으로 가져온 운동 이름도 앱 언어를 따라가고, 앱 시작 시 로고 스플래시가 표시됩니다",
+      ],
+      en: [
+        "Fixed the rest-bar button labels being shifted so 'Skip' appeared twice (-30s/+30s/Skip restored)",
+        "Logging a set for a different exercise no longer resets a running rest timer",
+        "Your picked exercise survives visiting other tabs, and tapping the rest bar jumps to the active exercise",
+        "Logged sets' effort rating is now editable, and the daily-check card collapses during a session",
+        "The Log tab folds by month, and the load-trend exercise picker in Stats is grouped by body part",
+        "Exercise names imported from a personal pack now follow the app language, and a logo splash shows at launch",
+      ],
+      es: [
+        "Corregidas las etiquetas desplazadas de la barra de descanso que mostraban 'Saltar' dos veces (-30s/+30s/Saltar restaurados)",
+        "Registrar una serie de otro ejercicio ya no reinicia el temporizador de descanso en curso",
+        "El ejercicio elegido se mantiene al visitar otras pestañas, y tocar la barra de descanso salta al ejercicio activo",
+        "El esfuerzo de las series registradas ahora es editable, y la tarjeta de chequeo diario se pliega durante la sesión",
+        "La pestaña Registro se pliega por mes, y el selector de ejercicios de la tendencia de carga se agrupa por parte del cuerpo",
+        "Los nombres de ejercicios importados de un pack personal siguen el idioma de la app, y al abrir se muestra un splash con el logo",
+      ],
+      pt: [
+        "Corrigidos os rótulos deslocados da barra de descanso que mostravam 'Pular' duas vezes (-30s/+30s/Pular restaurados)",
+        "Registrar uma série de outro exercício não reinicia mais o cronômetro de descanso em andamento",
+        "O exercício escolhido se mantém ao visitar outras abas, e tocar na barra de descanso leva ao exercício ativo",
+        "O esforço das séries registradas agora é editável, e o cartão de checagem diária recolhe durante a sessão",
+        "A aba Registro recolhe por mês, e o seletor de exercícios da tendência de carga é agrupado por parte do corpo",
+        "Nomes de exercícios importados de um pack pessoal seguem o idioma do app, e uma splash com o logo aparece ao abrir",
+      ],
+      ja: [
+        "休憩バーのボタンラベルがずれて「スキップ」が2つ表示される問題を修正（-30秒/+30秒/スキップを復元）",
+        "休憩中に別の種目のセットを記録しても、進行中の休憩タイマーがリセットされなくなりました",
+        "他のタブを見ても選択中の種目が維持され、休憩バーをタップすると進行中の種目へ移動します",
+        "記録済みセットのきつさも修正でき、セッション中のデイリーチェックカードが折りたたみ式になりました",
+        "記録タブが月ごとに折りたため、統計の重量推移の種目選択が部位別リストになりました",
+        "個人パックから取り込んだ種目名もアプリの言語に追従し、起動時にロゴスプラッシュが表示されます",
+      ],
+      zh: [
+        "修复休息栏按钮标签错位导致「跳过」显示两次的问题（恢复 -30秒/+30秒/跳过）",
+        "休息期间记录其他动作的组数不再重置正在进行的休息计时",
+        "切换到其他页后所选动作保持不变，点按休息栏可直接跳到进行中的动作",
+        "已记录组的费力程度现在可以修改，训练中的每日检查卡片可折叠",
+        "记录页按月折叠，统计中重量趋势的动作选择改为按部位分组",
+        "从个人包导入的动作名称也会跟随应用语言，启动时显示徽标闪屏",
+      ],
+    },
+  },
   {
     version: "1.7.0",
     date: "2026-08-14",

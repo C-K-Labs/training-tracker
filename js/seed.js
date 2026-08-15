@@ -71,3 +71,52 @@ export async function syncLibrary() {
   await put("kv", { key: "libraryVersion", v: LIBRARY_VERSION });
   return missing.length > 0 || backfill.length > 0;
 }
+
+// -------------------------------------------------- i18nKey backfill (v1.8.0)
+//
+// The one-shot syncLibrary backfill above misses two real paths:
+//  - a fresh install seeds the catalog (marker written), THEN a personal
+//    pack import overwrites those records with i18nKey-less copies, and the
+//    marker keeps the backfill from ever running again
+//  - pack records whose Korean names differ from the catalog only by
+//    spacing, or that name a variant the catalog does not carry at all
+// So this runs on EVERY boot: it is idempotent (records that already carry
+// a key are skipped) and cheap (one getAll over ~50 records). The guard
+// stays conservative: a key is attached only when the record's name matches
+// the known Korean default (ignoring spaces); anything the user renamed is
+// personal data and stays literal.
+
+// Known pack exercises the shipped catalog cannot cover: variant names that
+// must keep their meaning (Smith bench, DB OHP, plain cable row) and the
+// calisthenics holds. Each maps an id to its expected pack name and a
+// dedicated exname.* dictionary key shipped in all six languages.
+const PACK_SUPPLEMENT = {
+  "standing-cable-row": { name: "케이블로우", i18nKey: "exname.cable-row" },
+  "smith-bench": { name: "스미스 벤치프레스", i18nKey: "exname.smith-bench-press" },
+  "db-ohp": { name: "덤벨 오버헤드프레스", i18nKey: "exname.db-overhead-press" },
+  "planche-lean": { name: "플란치 린", i18nKey: "exname.planche-lean" },
+  "tuck-planche": { name: "턱 플란치", i18nKey: "exname.tuck-planche" },
+  "l-sit": { name: "L싯", i18nKey: "exname.l-sit" },
+};
+
+const normName = (s) => String(s || "").replace(/\s+/g, "");
+
+export async function backfillI18nKeys() {
+  const existing = await getAll("exercises");
+  const patch = [];
+  for (const ex of existing) {
+    if (typeof ex.i18nKey === "string" && ex.i18nKey.startsWith("exname.")) continue;
+    const catalogKey = CATALOG[ex.id] ? ex.id : ALIASES[ex.id];
+    const entry = catalogKey ? CATALOG[catalogKey] : null;
+    if (entry && normName(ex.name) === normName(entry.nameKo)) {
+      patch.push({ ...ex, i18nKey: entry.i18nKey });
+      continue;
+    }
+    const sup = PACK_SUPPLEMENT[ex.id];
+    if (sup && normName(ex.name) === normName(sup.name)) {
+      patch.push({ ...ex, i18nKey: sup.i18nKey });
+    }
+  }
+  if (patch.length > 0) await bulkPut("exercises", patch);
+  return patch.length;
+}

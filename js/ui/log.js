@@ -726,13 +726,31 @@ export async function mount(root, ctx) {
         return;
       }
 
+      // Months are collapsible (v1.8.0): the newest month starts open, older
+      // ones collapsed, each summary showing the month plus its entry count.
+      const counts = new Map();
+      for (const item of visible) {
+        const k = monthKey(item.date);
+        counts.set(k, (counts.get(k) || 0) + 1);
+      }
       let month = null;
+      let monthBody = null;
+      let isFirst = true;
       for (const item of visible) {
         if (monthKey(item.date) !== month) {
           month = monthKey(item.date);
-          root.appendChild(el("div", "month-label", monthLabel(item.date)));
+          const group = el("details", "month-group");
+          if (isFirst) group.open = true;
+          isFirst = false;
+          const summary = document.createElement("summary");
+          summary.className = "month-label";
+          summary.textContent = `${monthLabel(item.date)} · ${counts.get(month)}`;
+          group.appendChild(summary);
+          monthBody = el("div", "month-body");
+          group.appendChild(monthBody);
+          root.appendChild(group);
         }
-        root.appendChild(item.kind === "bodyweight" ? bodyweightCard(item) : sessionCard(item));
+        monthBody.appendChild(item.kind === "bodyweight" ? bodyweightCard(item) : sessionCard(item));
       }
     }
 

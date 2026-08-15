@@ -722,6 +722,10 @@ function renderCalisthenicsCard(ctx, exercises, open) {
 
 // ----------------------------------------------------------- active view
 
+// Module-level so the pick survives the screen remount a tab switch causes
+// (v1.8.0); keyed by session id so a new session starts clean.
+let manualSel = { sessionId: null, index: null, complete: false };
+
 function startTimer(root, ctx, startedAt) {
   let handle = null;
   const tick = () => {
@@ -737,11 +741,12 @@ function startTimer(root, ctx, startedAt) {
   handle = setInterval(tick, 1000);
 }
 
+// Collapsible since v1.8.0, same shell as the Today-tab cards: the chips
+// and the entry form live in the body, so the collapsed card is one line.
 function renderDailyCard(ctx, session) {
-  const card = el("div", "card");
-  card.appendChild(el("h2", null, t("today.daily.title")));
-
   const daily = session.daily || emptyDaily();
+  const { card, body } = quickCard(t("today.daily.title"), { open: false });
+
   const chips = el("div", "daily-row");
   chips.append(
     el("span", "chip neutral", t("today.daily.sleep", { h: daily.sleepH == null ? "-" : fmtNum(daily.sleepH) })),
@@ -751,10 +756,9 @@ function renderDailyCard(ctx, session) {
   if (painSummary) chips.appendChild(el("span", "chip bad", painSummary));
   if (daily.heat) chips.appendChild(el("span", "chip neutral", t("today.daily.heat")));
   if (daily.proteinOk) chips.appendChild(el("span", "chip neutral", t("today.daily.protein")));
-  card.appendChild(chips);
+  body.appendChild(chips);
 
   const form = el("div", null, null);
-  form.hidden = true;
   form.style.display = "flex";
   form.style.flexDirection = "column";
   form.style.gap = "10px";
@@ -801,10 +805,7 @@ function renderDailyCard(ctx, session) {
   });
   form.appendChild(save);
 
-  const toggle = el("button", "link", t("today.daily.edit"));
-  toggle.type = "button";
-  toggle.addEventListener("click", () => { form.hidden = !form.hidden; });
-  card.append(toggle, form);
+  body.appendChild(form);
   return card;
 }
 
@@ -887,16 +888,15 @@ function renderActive(root, ctx, data, session) {
   // Draft of the set currently being entered. Kept across in-place re-renders
   // of the card, reset whenever the active exercise (or superset side, or
   // pyramid rung) changes. dropDismissed/seenWorking are C1 additions.
-  const draft = { entryIndex: -1, weight: 0, reps: 0, effort: null, dropDismissed: false, seenWorking: 0, phase: "none", editSet: null, editWeight: 0, editReps: 0 };
+  const draft = { entryIndex: -1, weight: 0, reps: 0, effort: null, dropDismissed: false, seenWorking: 0, phase: "none", editSet: null, editWeight: 0, editReps: 0, editEffort: null };
   // Manual exercise selection (v1.2): tapping an incomplete exercise row
   // makes it the active one (e.g. when the machine for the next-in-order
   // exercise is taken). Cleared once that entry completes, falling back to
   // first-incomplete order. v1.6.0: a row that was ALREADY complete when
-  // tapped stays active (manualPickComplete) so its logged sets can be
-  // edited mid-session; the auto-advance above only applies to entries
-  // picked while still incomplete.
-  let manualIndex = null;
-  let manualPickComplete = false;
+  // tapped stays active (complete flag) so its logged sets can be edited
+  // mid-session. v1.8.0: the pick lives at module level keyed by session id,
+  // so switching tabs (which remounts this screen) no longer resets it.
+  if (manualSel.sessionId !== session.id) manualSel = { sessionId: session.id, index: null, complete: false };
 
   const entryState = (entry, item) => {
     const working = rules.workingSets(entry.sets).length;
@@ -992,33 +992,33 @@ function renderActive(root, ctx, data, session) {
   // Manual pick wins while its entry is incomplete; superset members route
   // through the pair's turn logic so the alternation stays intact.
   function computeActiveIndex() {
-    if (manualIndex != null) {
-      const entry = session.entries[manualIndex];
-      const item = entry ? resolveItem(manualIndex) : null;
+    if (manualSel.index != null) {
+      const entry = session.entries[manualSel.index];
+      const item = entry ? resolveItem(manualSel.index) : null;
       if (!entry) {
-        manualIndex = null;
+        manualSel.index = null;
       } else if (entryState(entry, item).complete) {
         // Deliberate revisit of a finished exercise sticks; an entry that
         // completed AFTER being picked falls back to auto-advance.
-        if (manualPickComplete) return manualIndex;
-        manualIndex = null;
+        if (manualSel.complete) return manualSel.index;
+        manualSel.index = null;
       } else {
-        for (const partnerIdx of [manualIndex - 1, manualIndex + 1]) {
+        for (const partnerIdx of [manualSel.index - 1, manualSel.index + 1]) {
           const partner = session.entries[partnerIdx];
           if (!partner) continue;
           const partnerItem = resolveItem(partnerIdx);
           const paired = item.method === "superset" && partnerItem.method === "superset"
             && item.supersetGroup && item.supersetGroup === partnerItem.supersetGroup;
           if (!paired) continue;
-          const aIdx = Math.min(manualIndex, partnerIdx);
-          const bIdx = Math.max(manualIndex, partnerIdx);
+          const aIdx = Math.min(manualSel.index, partnerIdx);
+          const bIdx = Math.max(manualSel.index, partnerIdx);
           const turn = supersetTurn(session.entries[aIdx], resolveItem(aIdx), session.entries[bIdx], resolveItem(bIdx));
           if (turn === "a") return aIdx;
           if (turn === "b") return bIdx;
-          manualIndex = null;
+          manualSel.index = null;
           break;
         }
-        if (manualIndex != null) return manualIndex;
+        if (manualSel.index != null) return manualSel.index;
       }
     }
     return computeInteractiveIndex();
@@ -1169,8 +1169,8 @@ function renderActive(root, ctx, data, session) {
     if (index !== activeIndex) {
       row.classList.add("pickable");
       row.addEventListener("click", () => {
-        manualIndex = index;
-        manualPickComplete = state.complete;
+        manualSel.index = index;
+        manualSel.complete = state.complete;
         renderCard();
       });
     }
@@ -1256,7 +1256,7 @@ function renderActive(root, ctx, data, session) {
       await put("sessions", session);
       if (dropsDone(entry) >= chain.length) {
         // The exercise is fully done at this point: between-exercise rest.
-        startRest(settings.restBetweenSec ?? 150, nextSetLabel(entry, item, exercise));
+        requestRest(settings.restBetweenSec ?? 150, nextSetLabel(entry, item, exercise), entry.exerciseId);
       }
       renderCard();
     });
@@ -1264,7 +1264,7 @@ function renderActive(root, ctx, data, session) {
     skip.type = "button";
     skip.addEventListener("click", () => {
       draft.dropDismissed = true;
-      startRest(settings.restBetweenSec ?? 150, nextSetLabel(entry, item, exercise));
+      requestRest(settings.restBetweenSec ?? 150, nextSetLabel(entry, item, exercise), entry.exerciseId);
       renderCard();
     });
     actions.append(save, skip);
@@ -1307,6 +1307,26 @@ function renderActive(root, ctx, data, session) {
     );
     box.appendChild(row);
 
+    // Effort is editable too (v1.8.0): a mistapped chip feeds the next-load
+    // verdict, so it must be fixable mid-session like weight and reps.
+    // Warm-up and drop sets carry no effort (nextLoad ignores them).
+    const editableEffort = !set.warmup && !set.drop;
+    if (editableEffort) {
+      const effortRow = el("div", "effort-row");
+      for (const level of EFFORT_LEVELS) {
+        const btn = el("button", "effort", t(`effort.${level}`));
+        btn.type = "button";
+        btn.dataset.level = level;
+        if (draft.editEffort === level) btn.classList.add("sel");
+        btn.addEventListener("click", () => {
+          draft.editEffort = draft.editEffort === level ? null : level;
+          renderCard();
+        });
+        effortRow.appendChild(btn);
+      }
+      box.appendChild(effortRow);
+    }
+
     const actions = el("div", "btn-row");
     const save = el("button", "btn-primary", t("common.save"));
     save.type = "button";
@@ -1314,6 +1334,7 @@ function renderActive(root, ctx, data, session) {
       save.disabled = true;
       set.weight = bodyweight ? num(set.weight) : draft.editWeight;
       set.reps = draft.editReps;
+      if (editableEffort) set.effort = draft.editEffort;
       await put("sessions", session);
       draft.editSet = null;
       renderCard();
@@ -1435,6 +1456,7 @@ function renderActive(root, ctx, data, session) {
         draft.editSet = setIndex;
         draft.editWeight = num(set.weight);
         draft.editReps = num(set.reps);
+        draft.editEffort = set.effort || null;
         renderCard();
       });
       block.appendChild(line);
@@ -1540,7 +1562,7 @@ function renderActive(root, ctx, data, session) {
             || entryState(session.entries[opts.partnerIndex], resolveItem(opts.partnerIndex)).complete;
           if (partnerDone) restSec = settings.restBetweenSec ?? 150;
         }
-        startRest(restSec, label);
+        requestRest(restSec, label, entry.exerciseId);
       }
       renderCard();
     });
@@ -1594,7 +1616,7 @@ const REST_STORAGE_KEY = "tt-rest";
 const REST_RING_R = 20;
 const REST_RING_CIRCUMFERENCE = 2 * Math.PI * REST_RING_R;
 
-let restState = { endsAt: null, totalMs: null, label: "" };
+let restState = { endsAt: null, totalMs: null, label: "", owner: "" };
 let restTickHandle = null;
 let restAlertFired = false;
 let restAudioCtx = null;
@@ -1605,7 +1627,7 @@ function loadRestState() {
     if (!raw) return;
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed.endsAt === "number") {
-      restState = { endsAt: parsed.endsAt, totalMs: parsed.totalMs || null, label: parsed.label || "" };
+      restState = { endsAt: parsed.endsAt, totalMs: parsed.totalMs || null, label: parsed.label || "", owner: parsed.owner || "" };
       restAlertFired = parsed.endsAt <= Date.now();
     }
   } catch { /* corrupt or unavailable storage: start with no rest running */ }
@@ -1618,9 +1640,9 @@ function persistRestState() {
   } catch { /* storage unavailable (private mode etc.): timer still runs in-memory */ }
 }
 
-function startRest(seconds, label) {
+function startRest(seconds, label, owner = "") {
   const ms = Math.max(0, num(seconds)) * 1000;
-  restState = { endsAt: Date.now() + ms, totalMs: ms, label };
+  restState = { endsAt: Date.now() + ms, totalMs: ms, label, owner };
   restAlertFired = false;
   persistRestState();
   // Fire-and-forget (v1.4): asks the server to push "rest over" at endsAt so
@@ -1630,8 +1652,18 @@ function startRest(seconds, label) {
   renderRestBar();
 }
 
+// Rest-preserving variant (v1.8.0): saving a set for a DIFFERENT exercise
+// while a rest is still counting (out-of-order logging, station juggling)
+// must not reset the running countdown to a fresh 2:00/2:30. Same-exercise
+// saves keep the old behavior: a set was just done, a new rest starts.
+function requestRest(seconds, label, owner) {
+  const running = restState.endsAt != null && restState.endsAt > Date.now();
+  if (running && restState.owner && owner && restState.owner !== owner) return;
+  startRest(seconds, label, owner);
+}
+
 function clearRest() {
-  restState = { endsAt: null, totalMs: null, label: "" };
+  restState = { endsAt: null, totalMs: null, label: "", owner: "" };
   persistRestState();
   // Logging the next set early, skipping rest, or finishing the session all
   // land here: the pending push is no longer wanted. A countdown that simply
@@ -1681,9 +1713,13 @@ function restBarRefs() {
     // Refresh the static button labels on every lookup: the bar is built
     // once at module load, which runs BEFORE boot() applies the stored
     // language, so labels built then would stay in the fallback language.
+    // v1.8.0 fix: the bar has had THREE buttons since the -30s button
+    // shipped (v1.6.0), but this refresh still wrote two labels shifted by
+    // one, so the bar read "+30s / skip / skip" after boot.
     const actions = bar.querySelectorAll(".restbar-actions button");
-    if (actions[0]) actions[0].textContent = t("rest.add30");
-    if (actions[1]) actions[1].textContent = t("rest.skip");
+    if (actions[0]) actions[0].textContent = t("rest.sub30");
+    if (actions[1]) actions[1].textContent = t("rest.add30");
+    if (actions[2]) actions[2].textContent = t("rest.skip");
     bar.setAttribute("aria-label", t("rest.title"));
     return {
       bar,
@@ -1720,6 +1756,17 @@ function restBarRefs() {
   const time = el("div", "restbar-time", "");
   const label = el("div", "restbar-label", "");
   info.append(time, label);
+  // Tapping the countdown (v1.8.0) jumps back to the running session and
+  // scrolls the active exercise into view; the buttons keep their own taps.
+  info.style.cursor = "pointer";
+  info.addEventListener("click", () => {
+    const tab = document.querySelector('.tab[data-screen="today"]');
+    if (tab) tab.click();
+    setTimeout(() => {
+      const active = document.querySelector(".ex-row.active");
+      if (active) active.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 350);
+  });
 
   const actions = el("div", "restbar-actions");
   const sub30 = el("button", "chip ghost", t("rest.sub30"));

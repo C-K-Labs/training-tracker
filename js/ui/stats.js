@@ -371,22 +371,44 @@ function trendCard(sessions, exercisesById, programs) {
     return card;
   }
 
-  const filters = el("div", "filter-row");
+  // Body-part-grouped picker (v1.8.0): the old flat chip row put every
+  // logged exercise on one long scrolling line, unreadable past a handful.
+  // Same optgroup treatment as the calisthenics picker; within each group
+  // the program-order/recency ordering of trendExercises is preserved, and
+  // deleted-exercise placeholders gather in a trailing group.
   const body = el("div");
-  const buttons = [];
-
-  list.forEach((exercise, i) => {
-    const btn = el("button", i === 0 ? "filter sel" : "filter", exerciseLabel(exercise));
-    btn.type = "button";
-    btn.addEventListener("click", () => {
-      for (const b of buttons) b.classList.toggle("sel", b === btn);
-      renderTrendBody(body, sessions, exercise);
-    });
-    buttons.push(btn);
-    filters.appendChild(btn);
+  const byId = Object.fromEntries(list.map((e) => [String(e.id), e]));
+  const select = document.createElement("select");
+  const PART_ORDER = ["legs", "back", "chest", "shoulders", "arms", "core", "full"];
+  const groups = new Map();
+  for (const exercise of list) {
+    const part = exercise.deleted ? "deleted" : (exercise.bodyPart || "full");
+    if (!groups.has(part)) groups.set(part, []);
+    groups.get(part).push(exercise);
+  }
+  for (const part of [...PART_ORDER, "deleted"]) {
+    const inPart = groups.get(part);
+    if (!inPart || inPart.length === 0) continue;
+    const group = document.createElement("optgroup");
+    group.label = part === "deleted" ? t("common.exercise.deleted") : t(`bodypart.${part}`);
+    for (const exercise of inPart) {
+      const option = document.createElement("option");
+      option.value = String(exercise.id);
+      option.textContent = exerciseLabel(exercise);
+      if (exercise === list[0]) option.selected = true;
+      group.appendChild(option);
+    }
+    select.appendChild(group);
+  }
+  select.addEventListener("change", () => {
+    const exercise = byId[select.value];
+    if (exercise) renderTrendBody(body, sessions, exercise);
   });
 
-  card.appendChild(filters);
+  const pickerField = el("div", "field");
+  pickerField.appendChild(select);
+  pickerField.style.marginBottom = "8px";
+  card.appendChild(pickerField);
   card.appendChild(body);
   renderTrendBody(body, sessions, list[0]);
   return card;

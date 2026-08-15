@@ -9,7 +9,7 @@
 import { t, setLang, getLang } from "./i18n.js";
 import { openDB, getSettings, requestPersist, get, put } from "./store.js";
 import { APP_VERSION, CHANGELOG } from "./version.js";
-import { seedIfEmpty, syncLibrary } from "./seed.js";
+import { seedIfEmpty, syncLibrary, backfillI18nKeys } from "./seed.js";
 import * as today from "./ui/today.js";
 import * as log from "./ui/log.js";
 import * as stats from "./ui/stats.js";
@@ -262,6 +262,9 @@ async function boot() {
   // v1.5.0: existing installs pick up newly shipped library exercises here
   // (id-based merge, one run per LIBRARY_VERSION; see js/seed.js).
   await syncLibrary();
+  // v1.8.0: every-boot idempotent pass so pack-imported exercises localize
+  // even when the import happened after the one-shot syncLibrary marker.
+  await backfillI18nKeys();
   const settings = await getSettings();
   setLang(settings.language);
   applyTheme(settings.theme);
@@ -284,6 +287,14 @@ async function boot() {
     await onboarding.mount(document.body, ctx);
   } else {
     await navigate("today");
+  }
+
+  // The static splash (index.html) covered the boot awaits above; the first
+  // real screen is mounted now, so fade it out.
+  const splash = document.getElementById("splash");
+  if (splash) {
+    splash.classList.add("done");
+    setTimeout(() => splash.remove(), 300);
   }
 
   // Both run after the screen (or the wizard) is mounted, so the notice
