@@ -292,8 +292,8 @@ function renderToday(root, ctx, data) {
   root.appendChild(el("div", "section-title", t("today.section.body")));
   root.appendChild(renderWaterCard(ctx, settings, water, defaultOpen === "water"));
   root.appendChild(renderBodyweightCard(ctx, settings, bodyweightRecords, defaultOpen === "bodyweight"));
-  root.appendChild(renderSleepCard(ctx, daily));
-  root.appendChild(renderNutritionCard(ctx, settings, bodyweightRecords, daily));
+  root.appendChild(renderSleepCard(ctx, daily, defaultOpen === "sleep"));
+  root.appendChild(renderNutritionCard(ctx, settings, bodyweightRecords, daily, defaultOpen === "nutrition"));
 }
 
 // Session tab, no session running: recovery banners plus the start card
@@ -368,6 +368,7 @@ async function renderSessionIdle(root, ctx, data) {
 function renderSkillCard(ctx, data) {
   const { exercisesById } = data;
   const { card, body } = quickCard(t("skill.title"), { open: false });
+  body.appendChild(el("div", "hint", t("skill.desc")));
   body.appendChild(el("div", "hint", t("skill.rule")));
 
   let selectedSkill = SKILLS[0].id;
@@ -552,20 +553,95 @@ function renderStartCard(ctx, settings, programs, exercises, open) {
     }
   };
   const row = el("div", "filter-row");
+  // Long-press drag reorder (v1.14.0), iPhone-home-screen style: hold a chip
+  // ~350ms to lift it, drag sideways to move it, release to persist the new
+  // order into program.order (the same field the settings arrows write).
+  // Before the hold fires, any movement is treated as a row scroll.
+  let drag = null;
+  let suppressClick = false;
+  row.addEventListener("touchmove", (e) => {
+    if (drag && drag.active) e.preventDefault();
+  }, { passive: false });
+  const persistOrder = async () => {
+    const ids = [...row.children].map((c) => c.dataset.programId);
+    for (let i = 0; i < ids.length; i++) {
+      const prog = weightPrograms.find((p) => p.id === ids[i]);
+      if (prog && prog.order !== i) {
+        prog.order = i;
+        await put("programs", prog);
+      }
+    }
+  };
   for (const program of weightPrograms) {
     const chip = el("button", "filter", programLabel(program.name));
     chip.type = "button";
+    chip.dataset.programId = program.id;
     if (program.id === selected.id) chip.classList.add("sel");
     chip.addEventListener("click", () => {
+      if (suppressClick) {
+        suppressClick = false;
+        return;
+      }
       selected = program;
       for (const other of row.children) other.classList.remove("sel");
       chip.classList.add("sel");
       showSelected();
     });
+    chip.addEventListener("contextmenu", (e) => e.preventDefault());
+    chip.addEventListener("pointerdown", (e) => {
+      drag = { chip, active: false, startX: e.clientX, startY: e.clientY };
+      drag.timer = setTimeout(() => {
+        if (!drag || drag.chip !== chip) return;
+        drag.active = true;
+        chip.classList.add("drag");
+        try { if (navigator.vibrate) navigator.vibrate(10); } catch { /* unsupported */ }
+        try { chip.setPointerCapture(e.pointerId); } catch { /* already released */ }
+      }, 350);
+    });
+    chip.addEventListener("pointermove", (e) => {
+      if (!drag || drag.chip !== chip) return;
+      if (!drag.active) {
+        if (Math.abs(e.clientX - drag.startX) > 8 || Math.abs(e.clientY - drag.startY) > 8) {
+          clearTimeout(drag.timer);
+          drag = null;
+        }
+        return;
+      }
+      // Move NEIGHBORS around the held chip, never the chip itself: moving
+      // the captured element through insertBefore re-inserts it and the
+      // browser drops its pointer capture, killing the drag mid-gesture.
+      const next = chip.nextElementSibling;
+      if (next) {
+        const r = next.getBoundingClientRect();
+        if (e.clientX > r.left + r.width / 2) {
+          row.insertBefore(next, chip);
+          return;
+        }
+      }
+      const prev = chip.previousElementSibling;
+      if (prev) {
+        const r = prev.getBoundingClientRect();
+        if (e.clientX < r.left + r.width / 2) {
+          row.insertBefore(prev, chip.nextElementSibling);
+        }
+      }
+    });
+    const finishDrag = async () => {
+      if (!drag || drag.chip !== chip) return;
+      clearTimeout(drag.timer);
+      const wasActive = drag.active;
+      drag = null;
+      chip.classList.remove("drag");
+      if (!wasActive) return;
+      suppressClick = true;
+      await persistOrder();
+    };
+    chip.addEventListener("pointerup", finishDrag);
+    chip.addEventListener("pointercancel", finishDrag);
     row.appendChild(chip);
   }
   showSelected();
-  body.append(row, estimateEl, previewEl);
+  body.append(row, el("div", "hint", t("today.start.drag")), estimateEl, previewEl);
 
   const start = el("button", "btn-primary", t("today.start.button"));
   start.type = "button";
@@ -731,9 +807,28 @@ function renderWaterCard(ctx, settings, water, open) {
   const target = settings.waterTargetMl || 2000;
   const cup = settings.cupMl || 250;
 
+  // Arrow steppers flank the cup grid (v1.14.0): tapping a cup fills
+  // STRAIGHT TO that cup (not one-at-a-time any more), the arrows adjust by
+  // a single cup for fine corrections.
+  const gridRow = el("div", "water-grid");
+  const minus = el("button", "chip ghost water-step", "−");
+  minus.type = "button";
+  minus.setAttribute("aria-label", t("today.water.cup.remove"));
+  const plus = el("button", "chip ghost water-step", "+");
+  plus.type = "button";
+  plus.setAttribute("aria-label", t("today.water.cup.add"));
   const cupsRow = el("div", "cup-row");
+  gridRow.append(minus, cupsRow, plus);
   const countLine = el("div", "cup-count", "");
-  body.append(cupsRow, countLine);
+  body.append(gridRow, countLine);
+
+  async function setMl(next) {
+    ml = Math.max(0, next);
+    await putWater(todayISO(), ml);
+    render();
+  }
+  minus.addEventListener("click", () => setMl(ml - cup));
+  plus.addEventListener("click", () => setMl(ml + cup));
 
   function render() {
     cupsRow.replaceChildren();
@@ -745,11 +840,7 @@ function renderWaterCard(ctx, settings, water, open) {
       const btn = el("button", `cup ${isFilled ? "filled" : "empty"}`, "");
       btn.type = "button";
       btn.setAttribute("aria-label", t(isFilled ? "today.water.cup.remove" : "today.water.cup.add"));
-      btn.addEventListener("click", async () => {
-        ml = Math.max(0, ml + (isFilled ? -cup : cup));
-        await putWater(todayISO(), ml);
-        render();
-      });
+      btn.addEventListener("click", () => setMl(cup * (i + 1)));
       cupsRow.appendChild(btn);
     }
     countLine.textContent = t("today.water.count", { ml, target });
@@ -765,8 +856,21 @@ function renderWaterCard(ctx, settings, water, open) {
 // entered in the bodyweight unit, stored kg). Shows the protein target (B3)
 // computed from the latest bodyweight entry, independent of what's typed here.
 function renderBodyweightCard(ctx, settings, bodyweightRecords, open) {
-  const { card, body } = quickCard(t("today.bw.title"), { open });
+  const { card, body, val } = quickCard(t("today.bw.title"), { open });
   const unit = settings.bodyweightUnit === "lb" ? "lb" : "kg";
+
+  // Latest record surfaces on the card (v1.14.0): collapsed header shows the
+  // value, the body shows value + date, so the card reads as a record, not
+  // just an empty entry form.
+  const newest = bodyweightRecords.reduce((best, b) => (!best || b.date > best.date ? b : best), null);
+  if (newest) {
+    const v = unit === "lb" ? rules.kgToLb(newest.kg) : newest.kg;
+    val.textContent = `${v} ${unit}`;
+    body.appendChild(el("div", "hint", t("today.bw.recent", {
+      date: `${Number(newest.date.slice(5, 7))}/${Number(newest.date.slice(8, 10))}`,
+      v: `${v} ${unit}`,
+    })));
+  }
 
   const weight = numberInput("", { min: 0, step: 0.1 });
   const fasted = checkboxField(t("today.bw.fasted"), true);
@@ -818,7 +922,7 @@ function dailyRecordKey(date) {
 }
 
 function emptyDailyRecord(date) {
-  return { key: dailyRecordKey(date), sleepH: null, proteinOk: false };
+  return { key: dailyRecordKey(date), sleepH: null, proteinOk: false, proteinG: null };
 }
 
 function renderSleepCard(ctx, dailyRec, open) {
@@ -853,22 +957,42 @@ const PROTEIN_FOODS = [
 
 function renderNutritionCard(ctx, settings, bodyweightRecords, dailyRec, open) {
   const { card, body, val } = quickCard(t("today.nutrition.title"), { open });
-  if (dailyRec.proteinOk) val.textContent = t("today.daily.protein");
 
   const unit = settings.bodyweightUnit === "lb" ? "lb" : "kg";
   const latest = bodyweightRecords.reduce((best, b) => (!best || b.date > best.date ? b : best), null);
+  const targetG = latest ? rules.proteinTargetG(latest.kg, settings.proteinCoef) : null;
+
+  // Header summary: grams eaten vs target when logged, else just the check.
+  const refreshVal = () => {
+    if (dailyRec.proteinG != null) {
+      val.textContent = targetG ? `${dailyRec.proteinG} / ${targetG} g` : `${dailyRec.proteinG} g`;
+    } else {
+      val.textContent = dailyRec.proteinOk ? t("today.daily.protein") : "";
+    }
+  };
+  refreshVal();
+
   body.appendChild(el("div", "hint", latest
     ? t("today.bw.protein", {
-        g: rules.proteinTargetG(latest.kg, settings.proteinCoef),
+        g: targetG,
         coef: rules.proteinCoefDisplay(settings.proteinCoef, unit),
       })
     : t("today.bw.protein.none")));
+
+  // Grams eaten (v1.14.0): saved on change into the same per-date record.
+  const grams = numberInput(dailyRec.proteinG ?? "", { min: 0, step: 1 });
+  grams.addEventListener("change", async () => {
+    dailyRec.proteinG = grams.value === "" ? null : num(grams.value);
+    await put("kv", { ...dailyRec, key: dailyRecordKey(todayISO()) });
+    refreshVal();
+  });
+  body.appendChild(field(t("today.nutrition.grams"), grams));
 
   const protein = checkboxField(t("today.daily.protein"), dailyRec.proteinOk);
   protein.input.addEventListener("change", async () => {
     dailyRec.proteinOk = protein.input.checked;
     await put("kv", { ...dailyRec, key: dailyRecordKey(todayISO()) });
-    val.textContent = dailyRec.proteinOk ? t("today.daily.protein") : "";
+    refreshVal();
   });
   body.appendChild(protein.wrap);
 

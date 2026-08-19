@@ -5,9 +5,75 @@
 // Newest entry first. The service worker cache version is bumped separately
 // in sw.js at each deploy.
 
-export const APP_VERSION = "1.13.2";
+export const APP_VERSION = "1.14.0";
 
 export const CHANGELOG = [
+  {
+    version: "1.14.0",
+    date: "2026-08-19",
+    notes: {
+      ko: [
+        "세션 탭: 세션 칩을 꾹 눌러 좌우로 끌면 순서가 바뀝니다 (아이폰 홈 화면 방식). 가로 스크롤바가 아래 내용과 겹치던 문제도 수정",
+        "카드 이름 정리: 웨이트 기록 > 웨이트 세션, 스킬 목표 > 맨몸 스킬 세션 추가 (설명 추가)",
+        "물 섭취: 칸을 누르면 그 칸까지 바로 채워지고, 양옆 화살표로 한 컵씩 조절합니다",
+        "기록 탭: 주차가 그 달의 첫 월요일 기준으로 계산됩니다 (8월 17일 = 3주차). 전월에 속한 주는 전월 주차로 표시",
+        "기록 탭: 전체 보기에서 체중이 카드 대신 주차 라벨 옆에 요약됩니다 (73 > 72.3 kg). 체중 필터에서는 기존처럼 카드로 표시",
+        "기록 상세가 요약 행을 다시 누르면 접힙니다 (기존에는 상세 안쪽을 눌러도 접혀서 편집 중에 닫히곤 했습니다)",
+        "식단 카드에 단백질 섭취량(g) 입력이 생겼고, 체중 카드에 최근 기록이 표시됩니다",
+        "설정 > 기본으로 펼칠 카드 목록에 수면과 식단이 추가되었습니다",
+      ],
+      en: [
+        "Session tab: press-hold a session chip and drag sideways to reorder (iPhone home-screen style). The horizontal scrollbar no longer overlaps content below",
+        "Card names cleaned up: Weights log > Weights session, Skill goals > Add a skill session (with a description)",
+        "Water: tapping a cup fills straight to it, and side arrows adjust one cup at a time",
+        "Log tab: weeks are numbered from the month's first Monday (Aug 17 = week 3); a spillover week is labeled by the previous month",
+        "Log tab: in the all view, bodyweight folds into the week label (73 > 72.3 kg) instead of separate cards; the bodyweight filter still shows cards",
+        "Session detail collapses by tapping the summary row again (taps inside the open detail used to collapse it mid-edit)",
+        "The Diet card gained a protein-eaten (g) input, and the Bodyweight card shows the latest record",
+        "Settings > default expanded card now lists Sleep and Diet too",
+      ],
+      es: [
+        "Pestaña Sesión: mantén pulsado un chip de sesión y arrástralo para reordenar (estilo pantalla de inicio de iPhone). La barra de desplazamiento ya no tapa el contenido inferior",
+        "Nombres de tarjetas: Registro de pesas > Sesión de pesas, Metas de habilidad > Añadir sesión de habilidad (con descripción)",
+        "Agua: tocar un vaso llena hasta ese vaso, y las flechas laterales ajustan de a un vaso",
+        "Registro: las semanas se numeran desde el primer lunes del mes (17 ago = semana 3); una semana de arrastre se etiqueta con el mes anterior",
+        "Registro: en la vista general, el peso corporal se resume junto a la etiqueta de semana (73 > 72.3 kg) en lugar de tarjetas; el filtro de peso las mantiene",
+        "El detalle de sesión se pliega tocando de nuevo la fila de resumen (antes se plegaba al tocar dentro del detalle durante la edición)",
+        "La tarjeta Dieta ganó un campo de proteína consumida (g), y la de Peso muestra el último registro",
+        "Ajustes > tarjeta expandida por defecto ahora incluye Sueño y Dieta",
+      ],
+      pt: [
+        "Aba Sessão: pressione e segure um chip de sessão e arraste para reordenar (estilo tela inicial do iPhone). A barra de rolagem não cobre mais o conteúdo abaixo",
+        "Nomes de cartões: Registro de musculação > Sessão de musculação, Metas de habilidade > Adicionar sessão de habilidade (com descrição)",
+        "Água: tocar um copo preenche até ele, e as setas laterais ajustam um copo por vez",
+        "Registro: as semanas são numeradas a partir da primeira segunda-feira do mês (17 ago = semana 3); uma semana de transição é rotulada pelo mês anterior",
+        "Registro: na visão geral, o peso corporal aparece resumido junto ao rótulo da semana (73 > 72.3 kg) em vez de cartões; o filtro de peso os mantém",
+        "O detalhe da sessão recolhe tocando de novo na linha de resumo (antes recolhia ao tocar dentro do detalhe durante a edição)",
+        "O cartão Dieta ganhou um campo de proteína consumida (g), e o de Peso mostra o último registro",
+        "Configurações > cartão expandido padrão agora inclui Sono e Dieta",
+      ],
+      ja: [
+        "セッションタブ: セッションチップを長押しして左右にドラッグすると順序を変更できます（iPhoneホーム画面方式）。横スクロールバーが下の内容と重なる問題も修正",
+        "カード名を整理: ウェイト記録 > ウェイトセッション、スキル目標 > 自重スキルセッション追加（説明付き）",
+        "水分: コップをタップするとそこまで一気に入り、左右の矢印で1杯ずつ調整できます",
+        "記録タブ: 週番号がその月の最初の月曜日基準になりました（8月17日 = 第3週）。前月にまたがる週は前月の週として表示",
+        "記録タブ: 全体表示では体重がカードではなく週ラベルに要約されます（73 > 72.3 kg）。体重フィルターでは従来どおりカード表示",
+        "記録の詳細は要約行をもう一度タップすると閉じます（従来は詳細の内側をタップしても閉じて、編集中に閉じることがありました）",
+        "食事カードにタンパク質摂取量(g)の入力が加わり、体重カードに直近の記録が表示されます",
+        "設定 > 既定で開くカードに睡眠と食事が追加されました",
+      ],
+      zh: [
+        "训练页：长按训练芯片并左右拖动即可调整顺序（iPhone主屏幕方式）。横向滚动条不再遮挡下方内容",
+        "卡片名称整理：力量训练记录 > 力量训练，技能目标 > 添加技能训练（附说明）",
+        "饮水：点击某格会直接填到该格，两侧箭头可逐杯调整",
+        "记录页：周序号改为按当月第一个周一计算（8月17日 = 第3周）；跨月周按上月标注",
+        "记录页：在全部视图中，体重以摘要形式显示在周标签旁（73 > 72.3 kg）而非单独卡片；体重筛选下仍显示卡片",
+        "训练详情改为再次点击摘要行即可收起（此前点击详情内部也会收起，编辑中容易误关）",
+        "饮食卡片新增蛋白质摄入量(g)输入，体重卡片会显示最近记录",
+        "设置 > 默认展开的卡片新增睡眠和饮食",
+      ],
+    },
+  },
   {
     version: "1.13.2",
     date: "2026-08-19",

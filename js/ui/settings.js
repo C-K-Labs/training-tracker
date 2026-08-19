@@ -1918,6 +1918,8 @@ function displayCard(state, ctx) {
       { value: "calisthenics", label: t("today.cal.title") },
       { value: "water", label: t("today.water.title") },
       { value: "bodyweight", label: t("today.bw.title") },
+      { value: "sleep", label: t("today.sleep.title") },
+      { value: "nutrition", label: t("today.nutrition.title") },
       { value: "none", label: t("common.none") },
     ];
     const storedCard = state.settings.todayDefaultOpen;

@@ -679,7 +679,11 @@ export async function mount(root, ctx) {
           rebuildBody(body, session);
           if (detail) fillSessionDetail(detail, session, refresh);
         };
-        card.addEventListener("click", () => {
+        // Only the summary ROW toggles (v1.14.0). The old whole-card handler
+        // meant taps inside the open detail (editing fields included)
+        // collapsed it, which read as "cannot close it properly".
+        row.style.cursor = "pointer";
+        row.addEventListener("click", () => {
           if (!detail) {
             detail = el("div", "log-detail");
             fillSessionDetail(detail, session, refresh);
@@ -704,7 +708,8 @@ export async function mount(root, ctx) {
       card.appendChild(row);
 
       let detail = null;
-      card.addEventListener("click", () => {
+      row.style.cursor = "pointer";
+      row.addEventListener("click", () => {
         if (!detail) {
           detail = el("div", "log-detail");
           if (!data.isGuest) detail.appendChild(deleteLink("bodyweight", item.record.date));
@@ -727,10 +732,27 @@ export async function mount(root, ctx) {
         return;
       }
 
+      // In the all-kinds view (v1.14.0), bodyweight records are folded into
+      // the week label ("1주차 · 73 > 72.3") instead of standing as cards;
+      // picking the bodyweight filter still shows them as cards (with their
+      // delete link), so records stay individually manageable.
+      const summarizeBw = selectedKind === "all";
+      const bwByWeek = new Map();
+      if (summarizeBw) {
+        for (const item of visible) {
+          if (item.kind !== "bodyweight") continue;
+          const k = weekKey(item.date);
+          if (!bwByWeek.has(k)) bwByWeek.set(k, []);
+          bwByWeek.get(k).push(item.record);
+        }
+        for (const records of bwByWeek.values()) records.sort((a, b) => a.date.localeCompare(b.date));
+      }
+
       // Months are collapsible (v1.8.0): the newest month starts open, older
       // ones collapsed, each summary showing the month plus its entry count.
       const counts = new Map();
       for (const item of visible) {
+        if (summarizeBw && item.kind === "bodyweight") continue;
         const k = monthKey(item.date);
         counts.set(k, (counts.get(k) || 0) + 1);
       }
@@ -738,13 +760,23 @@ export async function mount(root, ctx) {
       let monthBody = null;
       let week = null;
       let isFirst = true;
-      // Monday-start calendar weeks (rules.weekKey, the same convention the
-      // stats tab uses): week 1 is the week containing the 1st of the month,
-      // so a week spanning two months numbers independently in each group.
-      const weekOf = (dateISO) => {
-        const monthStartWeek = weekKey(`${dateISO.slice(0, 7)}-01`);
-        const days = (new Date(weekKey(dateISO) + "T00:00:00Z") - new Date(monthStartWeek + "T00:00:00Z")) / 86_400_000;
-        return Math.round(days / 7) + 1;
+      // Monday-start calendar weeks (rules.weekKey, the stats-tab
+      // convention). A week belongs to the month its MONDAY falls in
+      // (v1.14.0): week 1 starts at the month's first Monday, and a
+      // spillover week (e.g. Aug 1-2 whose Monday is Jul 27) is labeled by
+      // the previous month ("7월 5주차") instead of counting as this
+      // month's week 1.
+      const weekInfoFor = (dateISO) => {
+        const monday = weekKey(dateISO);
+        const mMonth = monday.slice(0, 7);
+        let firstMonday = weekKey(`${mMonth}-01`);
+        if (firstMonday.slice(0, 7) !== mMonth) {
+          const d = new Date(firstMonday + "T00:00:00Z");
+          d.setUTCDate(d.getUTCDate() + 7);
+          firstMonday = d.toISOString().slice(0, 10);
+        }
+        const days = (new Date(monday + "T00:00:00Z") - new Date(firstMonday + "T00:00:00Z")) / 86_400_000;
+        return { monday, month: mMonth, n: Math.round(days / 7) + 1 };
       };
       for (const item of visible) {
         if (monthKey(item.date) !== month) {
@@ -755,16 +787,25 @@ export async function mount(root, ctx) {
           isFirst = false;
           const summary = document.createElement("summary");
           summary.className = "month-label";
-          summary.textContent = `${monthLabel(item.date)} · ${counts.get(month)}`;
+          summary.textContent = `${monthLabel(item.date)} · ${counts.get(month) || 0}`;
           group.appendChild(summary);
           monthBody = el("div", "month-body");
           group.appendChild(monthBody);
           root.appendChild(group);
         }
-        if (weekOf(item.date) !== week) {
-          week = weekOf(item.date);
-          monthBody.appendChild(el("div", "week-label", t("log.week", { n: week })));
+        const info = weekInfoFor(item.date);
+        if (info.monday !== week) {
+          week = info.monday;
+          let labelText = info.month === month
+            ? t("log.week", { n: info.n })
+            : t("log.week.other", { m: Number(info.month.slice(5, 7)), n: info.n });
+          const bw = summarizeBw ? bwByWeek.get(info.monday) : null;
+          if (bw && bw.length > 0) {
+            labelText += ` · ${bw.map((r) => r.kg).join(" > ")} kg`;
+          }
+          monthBody.appendChild(el("div", "week-label", labelText));
         }
+        if (summarizeBw && item.kind === "bodyweight") continue;
         monthBody.appendChild(item.kind === "bodyweight" ? bodyweightCard(item) : sessionCard(item));
       }
     }

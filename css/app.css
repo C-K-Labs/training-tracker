@@ -258,9 +258,20 @@ button.chip { cursor: pointer; }
 .hint { font-size: 12px; color: var(--ink2); }
 .hint b { color: var(--accent); }
 
-/* Filters */
-.filter-row { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+/* Filters. The horizontal scrollbar is hidden (v1.14.0): on phones it
+   overlaid the content right below the row while swiping. */
+.filter-row { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.filter-row::-webkit-scrollbar { display: none; }
+.filter.drag {
+  opacity: 0.75;
+  transform: scale(1.08);
+  border-color: var(--accent);
+  color: var(--accent);
+}
 .filter {
+  -webkit-touch-callout: none;
+  user-select: none;
+  touch-action: pan-x;
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--ink2);
@@ -594,7 +605,11 @@ button, input, select, textarea { touch-action: manipulation; }
 .onboard-session .meta { font-size: 12px; color: var(--ink2); }
 .onboard-notes { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--ink2); }
 
-/* Water cups (B2): filled state = accent fill, tap toggles by one cupMl. */
+/* Water cups (B2): filled state = accent fill; tapping a cup fills straight
+   to it, the flanking arrows step by one cup (v1.14.0). */
+.water-grid { display: flex; align-items: flex-start; gap: 8px; }
+.water-grid .cup-row { flex: 1; min-width: 0; }
+.water-step { flex: none; min-width: 34px; height: 34px; font-size: 18px; }
 .cup-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .cup {
   width: 34px; height: 34px; flex: none;
