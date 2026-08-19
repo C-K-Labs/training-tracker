@@ -5,9 +5,81 @@
 // Newest entry first. The service worker cache version is bumped separately
 // in sw.js at each deploy.
 
-export const APP_VERSION = "1.12.0";
+export const APP_VERSION = "1.13.0";
 
 export const CHANGELOG = [
+  {
+    version: "1.13.0",
+    date: "2026-08-19",
+    notes: {
+      ko: [
+        "설정 > 보유 무게 > 기구별 예외: 추가한 무게 기준을 목록에서 바로 수정할 수 있고, 같은 이름의 운동(변형 포함)에는 하나의 기준이 함께 적용됩니다",
+        "설정 > 보유 무게 > 덤벨: 잘못 추가한 무게를 목록에서 삭제할 수 있습니다",
+        "설정 > 프로그램 > 리커버리 규칙에서 리커버리 모드를 직접 켜고 끌 수 있습니다 (기존에는 14일 공백 배너로만 켤 수 있었습니다)",
+        "기록 탭: 월 그룹 안에서 주차별(1주차, 2주차...)로 나뉘어 표시됩니다",
+        "기록 상세에 단백질 목표 확인 여부가 표시됩니다",
+        "세션 중 세트 편집기에 체감 라벨이 붙어 힘듦/보통/여유 수정임을 알아보기 쉽습니다",
+        "설정 > 데이터 > 세션 공유: 파일 없이 짧은 코드로도 세션 구성을 주고받을 수 있습니다 (백업 코드와 별개, 암호화 저장 180일)",
+        "탭 개편: 유산소와 맨몸운동 기록이 세션 탭으로 이동하고, 오늘 탭은 물, 체중, 수면, 식단 등 신체 기록 전용이 되었습니다",
+        "오늘 탭에 수면 카드와 식단 카드가 생겼습니다: 단백질 목표와 확인 체크, 일반 식품 단백질 함량 참고표. 수면과 단백질 확인은 세션 시작 시 컨디션 체크에 자동 반영됩니다",
+      ],
+      en: [
+        "Settings > Inventory > Per-exercise exceptions: added weight caps are editable in place, and one cap applies to every exercise with the same name (variants included)",
+        "Settings > Inventory > Dumbbells: a mistyped weight can now be removed from the list",
+        "Recovery mode can be switched on and off directly in Settings > Program > Recovery rule (previously only reachable through the 14-day gap banner)",
+        "Log tab: entries inside each month are now grouped by week (Week 1, Week 2...)",
+        "Session detail in the log now shows whether the protein target was checked",
+        "The in-session set editor labels its effort row so the hard/normal/easy chips read as editable",
+        "Settings > Data > Share sessions: session setups can now also be traded with a short code, no file needed (separate from the backup code, encrypted storage for 180 days)",
+        "Tab rework: cardio and calisthenics logging moved to the Session tab; the Today tab is now body records only (water, bodyweight, sleep, diet)",
+        "New Sleep and Diet cards on Today: protein target with a daily check plus a protein reference for common foods. Sleep and the protein check flow into the session's daily check automatically",
+      ],
+      es: [
+        "Ajustes > Inventario > Excepciones por ejercicio: los topes de peso se editan en el lugar y un tope se aplica a todos los ejercicios con el mismo nombre (variantes incluidas)",
+        "Ajustes > Inventario > Mancuernas: un peso mal escrito ahora puede quitarse de la lista",
+        "El modo recuperación puede activarse y desactivarse directamente en Ajustes > Programa > Regla de recuperación (antes solo mediante el aviso de 14 días)",
+        "Pestaña Registro: las entradas de cada mes se agrupan por semana (Semana 1, Semana 2...)",
+        "El detalle de sesión en el registro muestra si se confirmó la meta de proteína",
+        "El editor de series dentro de la sesión etiqueta su fila de esfuerzo para que se reconozca como editable",
+        "Ajustes > Datos > Compartir sesiones: las configuraciones también se intercambian con un código corto, sin archivo (separado del código de respaldo, almacenamiento cifrado por 180 días)",
+        "Reorganización de pestañas: el registro de cardio y calistenia pasó a la pestaña Sesión; la pestaña Hoy es solo para registros corporales (agua, peso, sueño, dieta)",
+        "Nuevas tarjetas de Sueño y Dieta en Hoy: meta de proteína con verificación diaria y referencia de proteína de alimentos comunes. El sueño y la verificación pasan automáticamente al chequeo diario de la sesión",
+      ],
+      pt: [
+        "Configurações > Inventário > Exceções por exercício: os limites de peso são editáveis no lugar e um limite se aplica a todos os exercícios com o mesmo nome (variantes incluídas)",
+        "Configurações > Inventário > Halteres: um peso digitado errado agora pode ser removido da lista",
+        "O modo recuperação pode ser ligado e desligado diretamente em Configurações > Programa > Regra de recuperação (antes só pelo aviso de 14 dias)",
+        "Aba Registro: as entradas de cada mês agora são agrupadas por semana (Semana 1, Semana 2...)",
+        "O detalhe da sessão no registro mostra se a meta de proteína foi conferida",
+        "O editor de séries na sessão rotula sua linha de esforço para que fique claro que é editável",
+        "Configurações > Dados > Compartilhar sessões: as configurações também podem ser trocadas com um código curto, sem arquivo (separado do código de backup, armazenamento criptografado por 180 dias)",
+        "Reorganização das abas: o registro de cardio e calistenia foi para a aba Sessão; a aba Hoje agora é só para registros corporais (água, peso, sono, dieta)",
+        "Novos cartões de Sono e Dieta em Hoje: meta de proteína com verificação diária e referência de proteína de alimentos comuns. O sono e a verificação entram automaticamente no check diário da sessão",
+      ],
+      ja: [
+        "設定 > 保有重量 > 種目別の例外: 追加した重量上限をその場で修正でき、同じ名前の種目（バリエーション含む）には一つの上限がまとめて適用されます",
+        "設定 > 保有重量 > ダンベル: 誤って追加した重量をリストから削除できます",
+        "設定 > プログラム > リカバリールールでリカバリーモードを直接オン/オフできます（従来は14日空白バナーからのみ）",
+        "記録タブ: 月グループ内が週ごと（第1週、第2週...）に分かれて表示されます",
+        "記録の詳細にタンパク質目標の確認有無が表示されます",
+        "セッション中のセット編集に体感ラベルが付き、修正できることが分かりやすくなりました",
+        "設定 > データ > セッション共有: ファイルなしでも短いコードでセッション構成を交換できます（バックアップコードとは別、暗号化保存180日）",
+        "タブ再編: 有酸素と自重トレの記録がセッションタブに移動し、今日タブは水分・体重・睡眠・食事など体の記録専用になりました",
+        "今日タブに睡眠カードと食事カードを追加: タンパク質目標と確認チェック、一般的な食品のタンパク質目安表。睡眠と確認はセッション開始時にコンディションチェックへ自動反映されます",
+      ],
+      zh: [
+        "设置 > 现有重量 > 按动作例外：添加的重量上限可直接修改，同名动作（含变式）共用同一上限",
+        "设置 > 现有重量 > 哑铃：输错的重量现在可以从列表中移除",
+        "恢复模式可在设置 > 计划 > 恢复规则中直接开关（此前只能通过14天空档提示开启）",
+        "记录页：每月内的条目现在按周分组（第1周、第2周...）",
+        "记录详情会显示是否确认了蛋白质目标",
+        "训练中的组数编辑器为感受一行加上了标签，更容易看出可以修改",
+        "设置 > 数据 > 分享训练：无需文件，也能用短代码交换训练配置（与备份代码相互独立，加密保存180天）",
+        "页签调整：有氧和自重训练记录移至训练页；今天页现在只保留身体记录（饮水、体重、睡眠、饮食）",
+        "今天页新增睡眠卡片和饮食卡片：蛋白质目标与每日确认，以及常见食品蛋白质参考表。睡眠和确认会在开始训练时自动带入状态检查",
+      ],
+    },
+  },
   {
     version: "1.12.0",
     date: "2026-08-15",

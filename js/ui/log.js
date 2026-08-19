@@ -585,6 +585,7 @@ export async function mount(root, ctx) {
         if (v > 0) dailyParts.push(t("today.daily.pain", { area: painAreaLabel(area), v }));
       }
       if (daily.heat) dailyParts.push(t("today.daily.heat"));
+      if (daily.proteinOk) dailyParts.push(t("today.daily.protein"));
       if (dailyParts.length > 0) detail.appendChild(el("div", "daily", dailyParts.join(" · ")));
       if (daily.note) detail.appendChild(el("div", "daily note", daily.note));
       for (const entry of session.entries || []) {
@@ -735,10 +736,15 @@ export async function mount(root, ctx) {
       }
       let month = null;
       let monthBody = null;
+      let week = null;
       let isFirst = true;
+      // Week-of-month: days 1-7 are week 1, 8-14 week 2, and so on, so the
+      // label is stable regardless of which weekday the month starts on.
+      const weekOf = (dateISO) => Math.floor((Number(dateISO.slice(8, 10)) - 1) / 7) + 1;
       for (const item of visible) {
         if (monthKey(item.date) !== month) {
           month = monthKey(item.date);
+          week = null;
           const group = el("details", "month-group");
           if (isFirst) group.open = true;
           isFirst = false;
@@ -749,6 +755,10 @@ export async function mount(root, ctx) {
           monthBody = el("div", "month-body");
           group.appendChild(monthBody);
           root.appendChild(group);
+        }
+        if (weekOf(item.date) !== week) {
+          week = weekOf(item.date);
+          monthBody.appendChild(el("div", "week-label", t("log.week", { n: week })));
         }
         monthBody.appendChild(item.kind === "bodyweight" ? bodyweightCard(item) : sessionCard(item));
       }

@@ -5,7 +5,7 @@
 // written through textContent; this module never uses innerHTML.
 
 import { t, getLang } from "../i18n.js";
-import { getAll, getSettings, saveSettings, put, newId, getWater, putWater } from "../store.js";
+import { getAll, getSettings, saveSettings, get, put, newId, getWater, putWater } from "../store.js";
 import { scheduleRestPush, cancelRestPush } from "../push.js";
 import { tipFor } from "../tips.js";
 import { exName, programLabel } from "../names.js";
@@ -281,19 +281,19 @@ function suggestBanner({ gap, onEnter }) {
 
 // ------------------------------------------------------------- idle view
 
-// Today tab (v1.9.0): quick logs only. The weights session moved to its own
-// tab, so these cards stay reachable while a session is running.
+// Today tab (v1.13.0): body records only. The exercise quick logs (cardio,
+// calisthenics) moved to the Session tab so everything training lives there,
+// and the daily body record (sleep, diet) is loggable on rest days too.
 function renderToday(root, ctx, data) {
-  const { settings, exercises, bodyweightRecords, water } = data;
+  const { settings, bodyweightRecords, water, daily } = data;
   ctx.setSub(t("screen.today.sub.idle", { date: dateLabel() }));
 
   const defaultOpen = settings.todayDefaultOpen || "none";
-  root.appendChild(el("div", "section-title", t("today.section.training")));
-  root.appendChild(renderCardioCard(ctx, defaultOpen === "cardio"));
-  root.appendChild(renderCalisthenicsCard(ctx, exercises, defaultOpen === "calisthenics"));
   root.appendChild(el("div", "section-title", t("today.section.body")));
   root.appendChild(renderWaterCard(ctx, settings, water, defaultOpen === "water"));
   root.appendChild(renderBodyweightCard(ctx, settings, bodyweightRecords, defaultOpen === "bodyweight"));
+  root.appendChild(renderSleepCard(ctx, daily));
+  root.appendChild(renderNutritionCard(ctx, settings, bodyweightRecords, daily));
 }
 
 // Session tab, no session running: recovery banners plus the start card
@@ -352,6 +352,13 @@ async function renderSessionIdle(root, ctx, data) {
   root.appendChild(renderStartCard(ctx, settings, programs, exercises, true));
   root.appendChild(renderRecommendCard(ctx, data));
   root.appendChild(renderSkillCard(ctx, data));
+
+  // Exercise quick logs (moved from the Today tab in v1.13.0): cardio can be
+  // logged here first as a warm-up, then the weights session started above.
+  const defaultOpen = settings.todayDefaultOpen || "none";
+  root.appendChild(el("div", "section-title", t("today.section.training")));
+  root.appendChild(renderCardioCard(ctx, defaultOpen === "cardio"));
+  root.appendChild(renderCalisthenicsCard(ctx, exercises, defaultOpen === "calisthenics"));
 }
 
 // Skill-goal programs (v1.12.0): curated calisthenics curricula from
@@ -564,6 +571,9 @@ function renderStartCard(ctx, settings, programs, exercises, open) {
   start.type = "button";
   start.addEventListener("click", async () => {
     start.disabled = true;
+    // Seed the session's daily check from today's body record (v1.13.0), so
+    // sleep/protein logged on the Today tab are not asked for twice.
+    const rec = await get("kv", dailyRecordKey(todayISO()));
     await put("sessions", {
       id: newId("session"),
       date: todayISO(),
@@ -573,7 +583,11 @@ function renderStartCard(ctx, settings, programs, exercises, open) {
       recovery: settings.recovery.active,
       startedAt: Date.now(),
       endedAt: null,
-      daily: emptyDaily(),
+      daily: {
+        ...emptyDaily(),
+        sleepH: rec && rec.sleepH != null ? rec.sleepH : null,
+        proteinOk: !!(rec && rec.proteinOk),
+      },
       entries: (selected.items || []).map((item) => ({
         exerciseId: item.exerciseId,
         targetReps: item.reps,
@@ -793,6 +807,80 @@ function renderBodyweightCard(ctx, settings, bodyweightRecords, open) {
     await ctx.remount();
   });
   body.appendChild(save);
+  return card;
+}
+
+// Daily body record (v1.13.0): sleep and diet live OUTSIDE any session (one
+// kv record per date, key "daily:<date>") so rest days get logged too; a
+// weights session started today copies these values into its daily check.
+function dailyRecordKey(date) {
+  return `daily:${date}`;
+}
+
+function emptyDailyRecord(date) {
+  return { key: dailyRecordKey(date), sleepH: null, proteinOk: false };
+}
+
+function renderSleepCard(ctx, dailyRec, open) {
+  const { card, body, val } = quickCard(t("today.sleep.title"), { open });
+  if (dailyRec.sleepH != null) val.textContent = t("today.daily.sleep", { h: dailyRec.sleepH });
+
+  const sleep = numberInput(dailyRec.sleepH ?? "", { min: 0, step: 0.5 });
+  body.appendChild(field(t("today.sleep.label"), sleep));
+
+  const save = el("button", "btn-primary", t("common.save"));
+  save.type = "button";
+  save.addEventListener("click", async () => {
+    save.disabled = true;
+    await put("kv", {
+      ...dailyRec,
+      key: dailyRecordKey(todayISO()),
+      sleepH: sleep.value === "" ? null : num(sleep.value),
+    });
+    ctx.showToast(t("settings.saved"));
+    await ctx.remount();
+  });
+  body.appendChild(save);
+  return card;
+}
+
+// Protein grams for common foods: approximate, widely published nutrition
+// facts (USDA-order figures), shown as a reference, not tracking data.
+const PROTEIN_FOODS = [
+  ["egg", 6], ["chicken", 23], ["tuna", 20], ["beef", 26],
+  ["milk", 7], ["greekYogurt", 10], ["tofu", 8], ["scoop", 24],
+];
+
+function renderNutritionCard(ctx, settings, bodyweightRecords, dailyRec, open) {
+  const { card, body, val } = quickCard(t("today.nutrition.title"), { open });
+  if (dailyRec.proteinOk) val.textContent = t("today.daily.protein");
+
+  const unit = settings.bodyweightUnit === "lb" ? "lb" : "kg";
+  const latest = bodyweightRecords.reduce((best, b) => (!best || b.date > best.date ? b : best), null);
+  body.appendChild(el("div", "hint", latest
+    ? t("today.bw.protein", {
+        g: rules.proteinTargetG(latest.kg, settings.proteinCoef),
+        coef: rules.proteinCoefDisplay(settings.proteinCoef, unit),
+      })
+    : t("today.bw.protein.none")));
+
+  const protein = checkboxField(t("today.daily.protein"), dailyRec.proteinOk);
+  protein.input.addEventListener("change", async () => {
+    dailyRec.proteinOk = protein.input.checked;
+    await put("kv", { ...dailyRec, key: dailyRecordKey(todayISO()) });
+    val.textContent = dailyRec.proteinOk ? t("today.daily.protein") : "";
+  });
+  body.appendChild(protein.wrap);
+
+  body.appendChild(el("div", "hint", t("today.nutrition.ref")));
+  for (const [key, grams] of PROTEIN_FOODS) {
+    const line = el("div", "set-line");
+    line.append(
+      el("span", null, t(`nutrition.food.${key}`)),
+      el("span", "qcard-val", `${grams} g`),
+    );
+    body.appendChild(line);
+  }
   return card;
 }
 
@@ -1509,6 +1597,10 @@ function renderActive(root, ctx, data, session) {
     // Warm-up and drop sets carry no effort (nextLoad ignores them).
     const editableEffort = !set.warmup && !set.drop;
     if (editableEffort) {
+      // Labeled (v1.13.0): bare chips under the steppers were not read as
+      // an editable field, so the effort row names itself like the log
+      // editor does.
+      box.appendChild(el("div", "hint", t("log.edit.effort")));
       const effortRow = el("div", "effort-row");
       for (const level of EFFORT_LEVELS) {
         const btn = el("button", "effort", t(`effort.${level}`));
@@ -2136,13 +2228,14 @@ renderRestBar();
 // ------------------------------------------------------------------ mount
 
 async function loadData() {
-  const [settings, programs, sessions, exercises, bodyweightRecords, water] = await Promise.all([
+  const [settings, programs, sessions, exercises, bodyweightRecords, water, daily] = await Promise.all([
     getSettings(),
     getAll("programs"),
     getAll("sessions"),
     getAll("exercises"),
     getAll("bodyweight"),
     getWater(todayISO()),
+    get("kv", dailyRecordKey(todayISO())),
   ]);
   return {
     settings,
@@ -2152,6 +2245,7 @@ async function loadData() {
     exercisesById: byId(exercises),
     bodyweightRecords,
     water,
+    daily: daily || emptyDailyRecord(todayISO()),
   };
 }
 

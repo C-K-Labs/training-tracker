@@ -419,23 +419,84 @@ function dumbbellEditor(box, state, ctx, render) {
     await commitSettings(state, ctx);
     render();
   });
+
+  // Remove a weight from the chip list entirely (mistyped or never-owned
+  // values otherwise pile up in the pool forever); chip toggles only cover
+  // enabled/disabled.
+  if (pool.length > 0) {
+    const removePick = document.createElement("select");
+    for (const w of pool) {
+      const opt = document.createElement("option");
+      opt.value = String(w);
+      opt.textContent = String(w);
+      removePick.appendChild(opt);
+    }
+    const removeRow = flexBox();
+    removeRow.appendChild(removePick);
+    const removeBtn = el("button", "btn-secondary", t("settings.inventory.dumbbell.remove"));
+    removeRow.appendChild(removeBtn);
+    box.appendChild(fieldEl(null, removeRow));
+    removeBtn.addEventListener("click", async () => {
+      const v = Number(removePick.value);
+      if (!Number.isFinite(v)) return;
+      inv.dumbbellPool = pool.filter((w) => w !== v);
+      inv.dumbbells = (inv.dumbbells || []).filter((w) => w !== v);
+      await commitSettings(state, ctx);
+      render();
+    });
+  }
 }
 
+// Same-name variants (e.g. one lat-pulldown station logged as two grip
+// records) are one physical machine, so a weight override applies to the
+// whole name group, and each listed override is editable in place.
 function overridesEditor(box, state, ctx, render) {
   const inv = state.settings.inventory;
   const overrides = inv.overrides || {};
 
-  for (const [exerciseId, ov] of Object.entries(overrides)) {
+  const idsByName = new Map();
+  for (const ex of state.exercises) {
+    const key = exName(ex);
+    if (!idsByName.has(key)) idsByName.set(key, []);
+    idsByName.get(key).push(ex.id);
+  }
+  const groupIds = (exerciseId) => {
     const ex = state.exercises.find((e) => e.id === exerciseId);
-    const value = Array.isArray(ov)
-      ? ov.join(", ")
-      : String(ov && ov.max != null ? ov.max : t("common.none"));
+    return ex ? idsByName.get(exName(ex)) : [exerciseId];
+  };
+
+  box.appendChild(el("div", "hint", t("settings.inventory.overrides.shared")));
+
+  const seen = new Set();
+  for (const [exerciseId, ov] of Object.entries(overrides)) {
+    if (seen.has(exerciseId)) continue;
+    const ids = groupIds(exerciseId).filter((id) => overrides[id] != null);
+    if (ids.length === 0) ids.push(exerciseId);
+    for (const id of ids) seen.add(id);
+    const ex = state.exercises.find((e) => e.id === exerciseId);
+    const current = Array.isArray(ov)
+      ? ov[ov.length - 1]
+      : ov && ov.max != null ? ov.max : NaN;
     const line = flexBox();
     line.style.justifyContent = "space-between";
-    line.appendChild(el("div", null, `${ex ? exLabel(ex) : t("common.exercise.deleted")} · ${value}`));
+    line.style.alignItems = "center";
+    line.appendChild(el("div", null, ex ? exName(ex) : t("common.exercise.deleted")));
+    const input = inputEl("number", Number.isFinite(current) ? current : "", { step: 0.5, min: 0 });
+    input.style.flex = "0 1 80px";
+    line.appendChild(input);
+    const save = el("button", "link", t("common.save"));
+    save.addEventListener("click", async () => {
+      const v = numValue(input, NaN);
+      if (!Number.isFinite(v) || v < 0) return;
+      for (const id of groupIds(exerciseId)) overrides[id] = { max: v };
+      inv.overrides = overrides;
+      await commitSettings(state, ctx);
+      render();
+    });
+    line.appendChild(save);
     const remove = el("button", "link", t("common.delete"));
     remove.addEventListener("click", async () => {
-      delete overrides[exerciseId];
+      for (const id of groupIds(exerciseId)) delete overrides[id];
       inv.overrides = overrides;
       await commitSettings(state, ctx);
       render();
@@ -461,7 +522,7 @@ function overridesEditor(box, state, ctx, render) {
   add.addEventListener("click", async () => {
     const v = numValue(max, NaN);
     if (!picker.value || !Number.isFinite(v) || v < 0) return;
-    overrides[picker.value] = { max: v };
+    for (const id of groupIds(picker.value)) overrides[id] = { max: v };
     inv.overrides = overrides;
     await commitSettings(state, ctx);
     render();
@@ -530,6 +591,33 @@ function programCard(state, ctx) {
           render();
         });
         box.appendChild(save);
+
+        // Manual on/off. The Session tab only offers the mode through the
+        // gap-detection banner, which never appears without a 14-day break,
+        // so this is the one always-reachable switch.
+        const recovery = state.settings.recovery;
+        const statusLine = flexBox();
+        statusLine.style.justifyContent = "space-between";
+        statusLine.style.alignItems = "center";
+        statusLine.style.marginTop = "10px";
+        statusLine.appendChild(el(
+          "div",
+          "hint",
+          t(recovery.active ? "settings.recovery.status.on" : "settings.recovery.status.off"),
+        ));
+        const toggle = el("button", "btn-secondary", t(recovery.active ? "settings.recovery.off" : "settings.recovery.on"));
+        toggle.addEventListener("click", async (event) => {
+          event.stopPropagation();
+          if (recovery.active) {
+            state.settings.recovery = { active: false, startedAt: null };
+          } else {
+            state.settings.recovery = { active: true, startedAt: isoDate(new Date()) };
+          }
+          await commitSettings(state, ctx);
+          render();
+        });
+        statusLine.appendChild(toggle);
+        box.appendChild(statusLine);
       },
     });
 
@@ -1345,6 +1433,13 @@ function restoreEditor(box, state, ctx) {
           // because from the user's side the code is what went wrong.
           ctx.showToast(t("settings.data.restore.notfound"));
         }
+        if (pack && pack.shareKind === "sessions") {
+          // A session-share code restored in replace mode would wipe the
+          // device's history for a config-only pack; route it to the share
+          // receiver instead.
+          ctx.showToast(t("settings.data.restore.sharecode"));
+          pack = null;
+        }
         if (pack) {
           const counts = await importPack(pack, mode);
           ctx.showToast(t("settings.data.import.ok", {
@@ -1446,40 +1541,161 @@ async function runFileExport(state, ctx, render) {
 // the receiver's own progression rules take over from the first session.
 function shareEditor(box, state, ctx) {
   const weightPrograms = rules.sortPrograms(state.programs.filter((p) => p.kind === "weights"));
-  if (weightPrograms.length === 0) {
-    box.appendChild(el("div", "empty", t("common.none")));
-    return;
-  }
-  box.appendChild(el("div", "hint", t("settings.data.share.hint")));
 
-  const checks = [];
-  for (const program of weightPrograms) {
-    const check = inputEl("checkbox", true);
-    const label = el("label");
-    label.style.display = "flex";
-    label.style.alignItems = "center";
-    label.style.gap = "6px";
-    label.append(check, el("span", null, programLabel(program.name)));
-    box.appendChild(label);
-    checks.push({ program, check });
-  }
+  if (weightPrograms.length > 0) {
+    box.appendChild(el("div", "hint", t("settings.data.share.hint")));
 
-  const run = el("button", "btn-primary", t("settings.data.share.run"));
-  run.type = "button";
-  run.addEventListener("click", async () => {
-    const programs = checks.filter((c) => c.check.checked).map((c) => c.program);
-    if (programs.length === 0) return;
-    const usedIds = new Set(programs.flatMap((p) => (p.items || []).map((i) => i.exerciseId)));
-    const pack = {
-      formatVersion: PACK_FORMAT_VERSION,
-      exportedAt: new Date().toISOString(),
-      exercises: state.exercises.filter((e) => usedIds.has(e.id)),
-      programs,
+    const checks = [];
+    for (const program of weightPrograms) {
+      const check = inputEl("checkbox", true);
+      const label = el("label");
+      label.style.display = "flex";
+      label.style.alignItems = "center";
+      label.style.gap = "6px";
+      label.append(check, el("span", null, programLabel(program.name)));
+      box.appendChild(label);
+      checks.push({ program, check });
+    }
+
+    const buildSharePack = () => {
+      const programs = checks.filter((c) => c.check.checked).map((c) => c.program);
+      if (programs.length === 0) return null;
+      const usedIds = new Set(programs.flatMap((p) => (p.items || []).map((i) => i.exerciseId)));
+      return {
+        formatVersion: PACK_FORMAT_VERSION,
+        exportedAt: new Date().toISOString(),
+        // Marks the pack as config-only so the backup-restore flow can
+        // refuse it (a replace-mode restore of this pack would wipe history).
+        shareKind: "sessions",
+        exercises: state.exercises.filter((e) => usedIds.has(e.id)),
+        programs,
+      };
     };
-    const outcome = await deliverPackFile(JSON.stringify(pack, null, 2), `training-tracker-sessions-${isoDate(new Date())}.ttpack`);
-    if (outcome === "error") ctx.showToast(t("settings.data.file.share.err"));
+
+    const run = el("button", "btn-primary", t("settings.data.share.run"));
+    run.type = "button";
+    run.addEventListener("click", async () => {
+      const pack = buildSharePack();
+      if (!pack) return;
+      const outcome = await deliverPackFile(JSON.stringify(pack, null, 2), `training-tracker-sessions-${isoDate(new Date())}.ttpack`);
+      if (outcome === "error") ctx.showToast(t("settings.data.file.share.err"));
+    });
+    box.appendChild(run);
+
+    // Code share (v1.13.0): same E2EE slot machinery as the cloud backup,
+    // but a fresh one-off code per share and a config-only payload, so the
+    // sync code and personal history stay uninvolved.
+    const codeWrap = el("div");
+    const makeCode = el("button", "btn-secondary", t("settings.data.share.code.make"));
+    makeCode.type = "button";
+    makeCode.addEventListener("click", async () => {
+      const pack = buildSharePack();
+      if (!pack) return;
+      makeCode.disabled = true;
+      makeCode.textContent = t("settings.data.cloud.working");
+      try {
+        const code = generateCode();
+        const { slotId, blob } = await encryptPack(pack, code);
+        const res = await fetch(CLOUD_ENDPOINT, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ slot: slotId, blob }),
+        });
+        if (res.ok) {
+          codeWrap.textContent = "";
+          const codeText = el("div", null, code);
+          codeText.style.fontFamily = "monospace";
+          codeText.style.fontSize = "20px";
+          codeText.style.letterSpacing = "2px";
+          codeWrap.appendChild(fieldEl(t("settings.data.share.code.label"), codeText));
+          codeWrap.appendChild(el("div", "hint", t("settings.data.share.code.hint")));
+          const copy = el("button", "btn-secondary", t("settings.data.cloud.copy"));
+          copy.type = "button";
+          copy.addEventListener("click", async () => {
+            try {
+              await navigator.clipboard.writeText(code);
+              ctx.showToast(t("settings.data.cloud.copied"));
+            } catch {
+              const selection = window.getSelection ? window.getSelection() : null;
+              if (selection && document.createRange) {
+                const range = document.createRange();
+                range.selectNodeContents(codeText);
+                selection.removeAllRanges();
+                selection.addRange(range);
+              }
+            }
+          });
+          codeWrap.appendChild(copy);
+        } else {
+          ctx.showToast(t(cloudErrKey(res)));
+        }
+      } catch {
+        ctx.showToast(t("settings.data.cloud.err"));
+      }
+      makeCode.textContent = t("settings.data.share.code.make");
+      makeCode.disabled = false;
+    });
+    box.appendChild(makeCode);
+    box.appendChild(codeWrap);
+  } else {
+    box.appendChild(el("div", "empty", t("common.none")));
+  }
+
+  // Receiving needs no programs of one's own, so it renders regardless.
+  const recvInput = inputEl("text", "", {
+    placeholder: t("settings.data.restore.code.ph"),
+    autocapitalize: "characters",
+    autocomplete: "off",
+    spellcheck: "false",
   });
-  box.appendChild(run);
+  box.appendChild(fieldEl(t("settings.data.share.code.label"), recvInput));
+  const recv = el("button", "btn-secondary", t("settings.data.share.receive"));
+  recv.type = "button";
+  recv.addEventListener("click", async () => {
+    const canonical = normalizeCode(recvInput.value);
+    if (!canonical) {
+      ctx.showToast(t("settings.data.restore.badcode"));
+      return;
+    }
+    recv.disabled = true;
+    recv.textContent = t("settings.data.cloud.working");
+    try {
+      const { slotId } = await deriveFromCode(canonical);
+      const res = await fetch(`${CLOUD_ENDPOINT}?slot=${slotId}`);
+      if (res.status === 404) {
+        ctx.showToast(t("settings.data.restore.notfound"));
+      } else if (!res.ok) {
+        ctx.showToast(t(cloudErrKey(res)));
+      } else {
+        const body = await res.json();
+        let pack = null;
+        try {
+          pack = await decryptBlob(body.blob, canonical);
+        } catch {
+          ctx.showToast(t("settings.data.restore.notfound"));
+        }
+        if (pack) {
+          // Merge only the config stores, even if a full-backup code was
+          // typed here: personal history never enters through this path.
+          const counts = await importPack({
+            formatVersion: pack.formatVersion,
+            exercises: pack.exercises || [],
+            programs: pack.programs || [],
+          }, "merge");
+          ctx.showToast(t("settings.data.share.receive.ok", {
+            p: counts.programs, e: counts.exercises,
+          }));
+          await ctx.remount();
+          return;
+        }
+      }
+    } catch {
+      ctx.showToast(t("settings.data.cloud.err"));
+    }
+    recv.textContent = t("settings.data.share.receive");
+    recv.disabled = false;
+  });
+  box.appendChild(recv);
 }
 
 // Strips a file's extension for the default guest name, e.g.
