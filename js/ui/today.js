@@ -1003,6 +1003,45 @@ function renderCalisthenicsCard(ctx, exercises, open) {
 // (v1.8.0); keyed by session id so a new session starts clean.
 let manualSel = { sessionId: null, index: null, complete: false };
 
+// Session id the user explicitly chose to resume past the stale-session
+// guard below (v1.13.2); module-level so tab switches don't re-prompt.
+let staleResumeId = null;
+
+// A weights session left un-ended on a previous day would otherwise stay
+// "active" forever, showing under today's date with a runaway elapsed timer
+// (v1.13.2, seen live at 2219 minutes). Ending it keeps every logged set;
+// endedAt is set to startedAt because the real end time is unknown, so the
+// duration reads 0 rather than fabricating hours (and cannot skew the
+// recommendation's average-minutes inference upward).
+function renderStaleSessionCard(root, ctx, session) {
+  const card = el("section", "card");
+  card.appendChild(el("h2", null, t("today.stale.title")));
+  card.appendChild(el("p", null, t("today.stale.desc", { date: session.date })));
+
+  const endBtn = el("button", "btn-primary", t("today.stale.end"));
+  endBtn.type = "button";
+  endBtn.addEventListener("click", async () => {
+    endBtn.disabled = true;
+    session.endedAt = session.startedAt;
+    await put("sessions", session);
+    clearRest();
+    ctx.showToast(t("today.session.finished"));
+    await ctx.remount();
+  });
+  card.appendChild(endBtn);
+
+  const resume = el("button", "btn-secondary", t("today.stale.resume"));
+  resume.type = "button";
+  resume.style.marginTop = "8px";
+  resume.addEventListener("click", async () => {
+    staleResumeId = session.id;
+    await ctx.remount();
+  });
+  card.appendChild(resume);
+
+  root.appendChild(card);
+}
+
 function startTimer(root, ctx, startedAt) {
   let handle = null;
   const tick = () => {
@@ -1990,6 +2029,13 @@ function loadRestState() {
     if (!raw) return;
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed.endsAt === "number") {
+      // A rest that ended over a minute ago belongs to an abandoned or
+      // previous-day session; restoring it would pin a permanent 0:00 bar
+      // (v1.13.2 fix, seen with a session left un-ended for 37 hours).
+      if (parsed.endsAt <= Date.now() - 60_000) {
+        localStorage.removeItem(REST_STORAGE_KEY);
+        return;
+      }
       restState = { endsAt: parsed.endsAt, totalMs: parsed.totalMs || null, label: parsed.label || "", owner: parsed.owner || "" };
       restAlertFired = parsed.endsAt <= Date.now();
     }
@@ -2209,10 +2255,11 @@ function renderRestBar() {
     stopRestTicking();
     return;
   }
-  if (refs.bar.hidden) {
-    const tabbar = document.getElementById("tabbar");
-    refs.bar.style.bottom = tabbar ? `${tabbar.getBoundingClientRect().height}px` : "0px";
-  }
+  // Re-measure on every render, not just hidden->shown (v1.13.2): the one
+  // boot-time measurement could land before layout settles on an iOS
+  // standalone launch, leaving the bar partially behind the tab bar.
+  const tabbar = document.getElementById("tabbar");
+  refs.bar.style.bottom = tabbar ? `${tabbar.getBoundingClientRect().height}px` : "0px";
   refs.bar.hidden = false;
   // Reserve the bar's own height in the scrollable screen's bottom padding
   // so it never overlaps/blocks content or buttons sitting above the tab bar.
@@ -2222,8 +2269,12 @@ function renderRestBar() {
 }
 
 // Runs once, at module load (app boot), independent of which screen mounts.
+// The first paint is deferred a frame so the tab bar has real layout before
+// the bar's bottom offset is measured; a resize (rotation, keyboard, iOS
+// viewport settling) re-measures via the same render path.
 loadRestState();
-renderRestBar();
+requestAnimationFrame(() => renderRestBar());
+window.addEventListener("resize", () => renderRestBar());
 
 // ------------------------------------------------------------------ mount
 
@@ -2257,6 +2308,12 @@ export async function mount(root, ctx) {
 export async function mountSession(root, ctx) {
   const data = await loadData();
   const active = findActiveSession(data.sessions);
+  if (active && active.date < todayISO() && active.id !== staleResumeId) {
+    ctx.setTimer(null);
+    ctx.setSub(t("screen.today.sub.idle", { date: dateLabel() }));
+    renderStaleSessionCard(root, ctx, active);
+    return;
+  }
   if (active) renderActive(root, ctx, data, active);
   else await renderSessionIdle(root, ctx, data);
 }

@@ -5,9 +5,45 @@
 // Newest entry first. The service worker cache version is bumped separately
 // in sw.js at each deploy.
 
-export const APP_VERSION = "1.13.1";
+export const APP_VERSION = "1.13.2";
 
 export const CHANGELOG = [
+  {
+    version: "1.13.2",
+    date: "2026-08-19",
+    notes: {
+      ko: [
+        "전날 종료하지 않은 세션이 오늘 날짜로 계속 진행 중처럼 보이던 문제: 이제 세션 탭이 종료 안내를 먼저 보여줍니다 (세트 기록은 그대로 보존, 시간은 미기록 처리; 이어서 진행도 가능)",
+        "오래 전에 끝난 휴식 타이머가 0:00 상태로 계속 떠 있던 문제를 수정했습니다",
+        "하단 휴식 바가 화면 레이아웃이 안정되기 전에 위치를 잡아 잘려 보일 수 있던 문제: 표시할 때마다 위치를 다시 계산합니다",
+      ],
+      en: [
+        "A session left un-ended on a previous day no longer shows as running under today's date: the Session tab now offers to close it first (all logged sets kept, duration marked unrecorded; resuming is still possible)",
+        "Fixed a rest timer that ended long ago staying on screen at 0:00",
+        "The bottom rest bar could be clipped when positioned before layout settled; it now re-measures its position on every update",
+      ],
+      es: [
+        "Una sesión sin finalizar de un día anterior ya no aparece como activa con la fecha de hoy: la pestaña Sesión ofrece cerrarla primero (todas las series se conservan, duración sin registrar; también se puede continuar)",
+        "Corregido un temporizador de descanso terminado hace tiempo que seguía en pantalla en 0:00",
+        "La barra de descanso inferior podía verse cortada al posicionarse antes de asentarse el diseño; ahora recalcula su posición en cada actualización",
+      ],
+      pt: [
+        "Uma sessão não finalizada de um dia anterior não aparece mais como ativa com a data de hoje: a aba Sessão oferece fechá-la primeiro (todas as séries mantidas, duração não registrada; continuar também é possível)",
+        "Corrigido um cronômetro de descanso encerrado há muito tempo que permanecia na tela em 0:00",
+        "A barra de descanso inferior podia ficar cortada ao se posicionar antes de o layout assentar; agora recalcula a posição a cada atualização",
+      ],
+      ja: [
+        "前日に終了しなかったセッションが今日の日付で進行中のように見え続ける問題: セッションタブが先に終了案内を表示します（記録済みセットは保持、時間は未記録扱い。続行も可能）",
+        "とっくに終わった休憩タイマーが0:00のまま表示され続ける問題を修正しました",
+        "下部の休憩バーがレイアウト確定前に位置を決めて欠けて見えることがある問題: 表示のたびに位置を再計算します",
+      ],
+      zh: [
+        "前一天未结束的训练不再以今天的日期显示为进行中：训练页会先提示结束（已记录的组全部保留，时长按未记录处理；也可以继续进行）",
+        "修复了早已结束的休息计时器一直停留在0:00的问题",
+        "底部休息条可能在布局稳定前定位导致显示被裁切：现在每次更新都会重新计算位置",
+      ],
+    },
+  },
   {
     version: "1.13.1",
     date: "2026-08-19",
