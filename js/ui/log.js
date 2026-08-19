@@ -15,7 +15,7 @@
 import { t, getLang } from "../i18n.js";
 import { getAll, del, put, getSettings, getGuests, getGuestData } from "../store.js";
 import { exName, programLabel } from "../names.js";
-import { workingSets, paceText, formatLoad } from "../rules.js";
+import { workingSets, paceText, formatLoad, weekKey } from "../rules.js";
 
 export const titleKey = "tab.log";
 export const subKey = "screen.log.sub";
@@ -738,9 +738,14 @@ export async function mount(root, ctx) {
       let monthBody = null;
       let week = null;
       let isFirst = true;
-      // Week-of-month: days 1-7 are week 1, 8-14 week 2, and so on, so the
-      // label is stable regardless of which weekday the month starts on.
-      const weekOf = (dateISO) => Math.floor((Number(dateISO.slice(8, 10)) - 1) / 7) + 1;
+      // Monday-start calendar weeks (rules.weekKey, the same convention the
+      // stats tab uses): week 1 is the week containing the 1st of the month,
+      // so a week spanning two months numbers independently in each group.
+      const weekOf = (dateISO) => {
+        const monthStartWeek = weekKey(`${dateISO.slice(0, 7)}-01`);
+        const days = (new Date(weekKey(dateISO) + "T00:00:00Z") - new Date(monthStartWeek + "T00:00:00Z")) / 86_400_000;
+        return Math.round(days / 7) + 1;
+      };
       for (const item of visible) {
         if (monthKey(item.date) !== month) {
           month = monthKey(item.date);

@@ -5,9 +5,33 @@
 // Newest entry first. The service worker cache version is bumped separately
 // in sw.js at each deploy.
 
-export const APP_VERSION = "1.13.0";
+export const APP_VERSION = "1.13.1";
 
 export const CHANGELOG = [
+  {
+    version: "1.13.1",
+    date: "2026-08-19",
+    notes: {
+      ko: [
+        "기록 탭 주차 구분이 월요일-일요일 달력 주 기준으로 바뀌었습니다 (통계 탭의 주간 집계와 동일한 기준, 그 달 1일이 포함된 주가 1주차)",
+      ],
+      en: [
+        "Week grouping in the Log tab now follows Monday-Sunday calendar weeks (the same convention as the Stats tab's weekly totals; week 1 is the week containing the 1st of the month)",
+      ],
+      es: [
+        "La agrupación por semanas en Registro ahora sigue semanas de calendario de lunes a domingo (el mismo criterio que los totales semanales de Estadísticas; la semana 1 es la que contiene el día 1 del mes)",
+      ],
+      pt: [
+        "O agrupamento por semanas no Registro agora segue semanas de calendário de segunda a domingo (o mesmo critério dos totais semanais de Estatísticas; a semana 1 é a que contém o dia 1 do mês)",
+      ],
+      ja: [
+        "記録タブの週分けが月曜-日曜のカレンダー週基準になりました（統計タブの週間集計と同じ基準、その月の1日を含む週が第1週）",
+      ],
+      zh: [
+        "记录页的按周分组改为周一至周日的日历周（与统计页的每周汇总一致；包含当月1日的那一周为第1周）",
+      ],
+    },
+  },
   {
     version: "1.13.0",
     date: "2026-08-19",
