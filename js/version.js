@@ -5,9 +5,51 @@
 // Newest entry first. The service worker cache version is bumped separately
 // in sw.js at each deploy.
 
-export const APP_VERSION = "1.14.0";
+export const APP_VERSION = "1.14.1";
 
 export const CHANGELOG = [
+  {
+    version: "1.14.1",
+    date: "2026-08-19",
+    notes: {
+      ko: [
+        "세션 무게가 실제 기록을 따라갑니다: 지난 세션에서 실제로 든 무게가 다음 세션의 기본 무게, 증량 안내, 세션 미리보기에 그대로 반영됩니다 (기존에는 전 세트를 '여유'로 평가했을 때만 목표 무게가 올라가서, 직접 올린 무게가 다음 세션에 반영되지 않았습니다)",
+        "무게 +/- 버튼이 잘못 저장된 기구별 최대 무게에 막히지 않습니다: 현재 무게가 설정된 최대치보다 높으면 그 최대치를 무시하고 기구별 증분으로 계속 오르내립니다 (예: 75 lb에서 +가 안 눌리고 -가 15 lb로 떨어지던 문제). 정확히 최대치에서 +를 누르면 안내가 표시됩니다",
+        "글자를 입력하는 동안 하단 탭바가 키보드 위로 딸려 올라오지 않습니다 (입력 중에는 숨겨지고 끝나면 복귀)",
+        "버튼 밖 빈 곳을 빠르게 두 번 탭해도 화면이 확대되지 않습니다 (두 손가락 확대는 그대로 사용 가능)",
+      ],
+      en: [
+        "Session weights now follow your actual records: the weight you really lifted last session becomes the next session's default, progression hint, and preview (before, the target only rose when every set was rated easy, so manually raised weights never carried over)",
+        "The weight +/- stepper no longer dead-ends on a bad per-machine max: when the current weight sits above the configured cap, stepping continues by the equipment's increment (e.g. stuck at 75 lb with - crashing to 15 lb). Pressing + exactly at the cap shows a notice",
+        "The bottom tab bar no longer rides up on top of the keyboard while typing (hidden during input, restored after)",
+        "Fast double-taps on empty areas no longer zoom the screen (pinch zoom still works)",
+      ],
+      es: [
+        "Los pesos de sesión siguen tus registros reales: el peso que realmente levantaste la última sesión pasa a ser el predeterminado, la sugerencia de progresión y la vista previa (antes el objetivo solo subía si todas las series se calificaban fáciles)",
+        "El botón +/- de peso ya no se bloquea por un máximo por máquina mal guardado: si el peso actual supera el tope configurado, sigue subiendo por el incremento del equipo (p. ej., atascado en 75 lb y el - caía a 15 lb). Al pulsar + justo en el tope se muestra un aviso",
+        "La barra de pestañas inferior ya no sube sobre el teclado al escribir (se oculta durante la entrada y vuelve después)",
+        "Los dobles toques rápidos en zonas vacías ya no amplían la pantalla (el zoom con dos dedos sigue funcionando)",
+      ],
+      pt: [
+        "Os pesos da sessão seguem seus registros reais: o peso que você realmente levantou na última sessão vira o padrão, a sugestão de progressão e a prévia da próxima (antes a meta só subia quando todas as séries eram avaliadas como fáceis)",
+        "O botão +/- de peso não trava mais em um máximo por máquina salvo errado: se o peso atual está acima do teto configurado, continua subindo pelo incremento do equipamento (ex.: preso em 75 lb com o - caindo para 15 lb). Apertar + exatamente no teto mostra um aviso",
+        "A barra de abas inferior não sobe mais junto com o teclado ao digitar (fica oculta durante a digitação e volta depois)",
+        "Toques duplos rápidos em áreas vazias não ampliam mais a tela (o zoom de pinça continua funcionando)",
+      ],
+      ja: [
+        "セッションの重量が実際の記録に追従します: 前回実際に挙げた重量が次のセッションの初期値・増量案内・プレビューに反映されます（従来は全セットを「余裕」と評価したときだけ目標重量が上がる仕様でした）",
+        "重量の+/-ボタンが誤って保存された器具別最大値で止まらなくなりました: 現在の重量が設定上限を超えている場合は器具ごとの増分で上下し続けます（例: 75 lbで+が効かず-で15 lbに落ちる問題）。ちょうど上限で+を押すと案内が表示されます",
+        "入力中に下部タブバーがキーボードの上に乗り上がらなくなりました（入力中は非表示、終了後に復帰）",
+        "ボタン以外の空き領域を素早く2回タップしても画面が拡大されません（ピンチ拡大はそのまま使えます）",
+      ],
+      zh: [
+        "训练重量现在跟随实际记录: 上次训练实际举起的重量会成为下次的默认重量、加重建议和预览（此前只有所有组都评为轻松时目标重量才会上升，手动加的重量不会带入下次）",
+        "重量+/-按钮不再被错误保存的器械最大值卡住: 当前重量高于设置上限时，会按器械增量继续加减（例如卡在75磅、按-直接跌到15磅的问题）。恰好在上限按+会显示提示",
+        "输入文字时底部标签栏不再随键盘顶起（输入期间隐藏，结束后恢复）",
+        "快速双击空白区域不再放大页面（双指缩放仍然可用）",
+      ],
+    },
+  },
   {
     version: "1.14.0",
     date: "2026-08-19",

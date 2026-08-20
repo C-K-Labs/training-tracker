@@ -12,6 +12,7 @@ import {
   paceText, weeklyCardioMinutes,
   pyramidPlan, dropChain,
   warmupDefaultLoad, orderTrendExercises, workingSets,
+  stepIncrement, healSteps, lastWorkingLoad,
 } from "../js/rules.js";
 
 const INVENTORY = {
@@ -482,4 +483,79 @@ test("restSecondsFor: override > tier defaults > legacy restDefaultSec", () => {
   const legacy = { restDefaultSec: 120 };
   assert.equal(restSecondsFor("x", legacy, { id: "x", name: "Lateral Raise" }), 120);
   assert.equal(restSecondsFor("x", legacy, { id: "x", name: "Squat" }), 120);
+});
+
+// ------------------------------------------- load base + healing (v1.14.1)
+
+test("stepIncrement: per-equipment increments", () => {
+  assert.equal(stepIncrement({ equipment: "machine" }, INVENTORY), 5);
+  assert.equal(stepIncrement({ equipment: "cable" }, INVENTORY), 2.5);
+  assert.equal(stepIncrement({ equipment: "smith" }, INVENTORY), 5); // plateMin 2.5 pair
+  assert.equal(stepIncrement({ equipment: "dumbbell" }, INVENTORY), 5); // 40 - 35
+  assert.equal(stepIncrement({ equipment: "bodyweight" }, INVENTORY), 0);
+  assert.equal(stepIncrement({ equipment: "machine" }, {}), 5); // defaults
+  assert.equal(stepIncrement({ equipment: "dumbbell" }, { dumbbells: [20] }), 5); // single-entry rack
+});
+
+test("healSteps: extends a ladder whose top sits below the load in use", () => {
+  // The live bug: a stale override capped lat pulldown at 15 lb while the
+  // user worked at 75 lb, so + was dead and - crashed from 75 to 15.
+  const capped = [0, 2.5, 5, 7.5, 10, 12.5, 15];
+  const healed = healSteps(capped, 75, 2.5);
+  assert.equal(stepUp(75, healed), 77.5);
+  assert.equal(stepDown(75, healed), 72.5);
+  // Leg curl flavor: machine capped at 50, lifted 115, machineStep 5.
+  const healed2 = healSteps([0, 25, 50], 115, 5);
+  assert.equal(stepUp(115, healed2), 120);
+  assert.equal(stepDown(115, healed2), 110);
+});
+
+test("healSteps: at or below the top the ladder is unchanged (caps still cap)", () => {
+  const steps = [0, 5, 10, 15];
+  assert.deepEqual(healSteps(steps, 15, 5), steps);
+  assert.deepEqual(healSteps(steps, 10, 5), steps);
+  assert.equal(stepUp(15, healSteps(steps, 15, 5)), null);
+});
+
+test("healSteps: degenerate inputs pass through", () => {
+  assert.deepEqual(healSteps([0, 5], 10, 0), [0, 5]); // bodyweight increment
+  assert.equal(stepUp(10, healSteps(null, 10, 5)), 15); // null ladder rebuilds from zero
+  assert.equal(stepUp(10, healSteps([], 10, 5)), 15); // empty ladder too
+});
+
+const LOAD_SESSIONS = [
+  { id: "s1", kind: "weights", date: "2026-08-05", endedAt: 1, entries: [
+    { exerciseId: "leg-curl", sets: [
+      { weight: 45, reps: 8, warmup: true },
+      { weight: 105, reps: 12 },
+      { weight: 110, reps: 12 },
+    ] },
+  ] },
+  { id: "s2", kind: "weights", date: "2026-08-12", endedAt: 2, entries: [
+    { exerciseId: "leg-curl", sets: [
+      { weight: 115, reps: 12 },
+      { weight: 115, reps: 12 },
+      { weight: 100, reps: 15, drop: true },
+    ] },
+  ] },
+  { id: "s3", kind: "weights", date: "2026-08-15", endedAt: 3, recovery: true, entries: [
+    { exerciseId: "leg-curl", sets: [{ weight: 95, reps: 12 }] },
+  ] },
+  { id: "s4", kind: "weights", date: "2026-08-19", startedAt: 4, entries: [
+    { exerciseId: "leg-curl", sets: [{ weight: 50, reps: 12 }] },
+  ] },
+  { id: "c1", kind: "cardio", date: "2026-08-18", endedAt: 5 },
+];
+
+test("lastWorkingLoad: last main working set of the newest completed non-recovery session", () => {
+  // s4 is un-ended (and excluded as current), s3 is recovery, so s2 wins;
+  // its drop set is ignored and the answer is the last MAIN set's 115.
+  assert.equal(lastWorkingLoad(LOAD_SESSIONS, "leg-curl", "s4"), 115);
+});
+
+test("lastWorkingLoad: warm-ups ignored, null when no history", () => {
+  const only1 = LOAD_SESSIONS.filter((s) => s.id === "s1");
+  assert.equal(lastWorkingLoad(only1, "leg-curl"), 110);
+  assert.equal(lastWorkingLoad(LOAD_SESSIONS, "lat-pulldown"), null);
+  assert.equal(lastWorkingLoad([], "leg-curl"), null);
 });

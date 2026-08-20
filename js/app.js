@@ -61,6 +61,35 @@ function refreshTabLabels() {
   }
 }
 
+// Hide the tab bar while a text-entry control is focused (v1.14.1): the
+// fixed bottom bar otherwise rides up on top of the phone keyboard and sits
+// over the content being typed into. Checkbox-like inputs open no keyboard,
+// so they keep the bar. The focusout delay covers focus hopping directly
+// between two fields without flashing the bar in between.
+const NO_KEYBOARD_INPUTS = new Set(["checkbox", "radio", "range", "button", "submit", "reset", "file", "color"]);
+function opensKeyboard(node) {
+  if (!node || node.disabled) return false;
+  if (node.tagName === "TEXTAREA") return true;
+  if (node.tagName !== "INPUT") return false;
+  return !NO_KEYBOARD_INPUTS.has(node.type);
+}
+{
+  const tabbarEl = document.getElementById("tabbar");
+  let kbShowTimer = null;
+  document.addEventListener("focusin", (e) => {
+    if (!opensKeyboard(e.target)) return;
+    clearTimeout(kbShowTimer);
+    tabbarEl.classList.add("kb-hidden");
+  });
+  document.addEventListener("focusout", (e) => {
+    if (!opensKeyboard(e.target)) return;
+    clearTimeout(kbShowTimer);
+    kbShowTimer = setTimeout(() => {
+      if (!opensKeyboard(document.activeElement)) tabbarEl.classList.remove("kb-hidden");
+    }, 150);
+  });
+}
+
 async function navigate(name) {
   const mod = screens[name];
   if (!mod) return;

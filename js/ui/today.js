@@ -181,9 +181,23 @@ function repsText(reps) {
   return reps === "max" ? t("common.max.reps") : String(num(reps));
 }
 
-function stepsFor(exercise, settings) {
+// Inventory ladder for an exercise. Pass the load in use to heal a stale low
+// cap (rules.healSteps): without it a bad per-exercise override dead-ends the
+// weight stepper at the cap.
+function stepsFor(exercise, settings, current) {
   const ex = exercise || { id: "", equipment: "machine" };
-  return rules.inventorySteps(ex, settings.inventory);
+  const steps = rules.inventorySteps(ex, settings.inventory);
+  if (current == null) return steps;
+  return rules.healSteps(steps, current, rules.stepIncrement(ex, settings.inventory));
+}
+
+// Base load for a session entry: what was actually lifted last time, else
+// the program's stored target (v1.14.1). The stored target alone left the
+// default stuck forever when the user out-lifted it with "normal"-effort
+// sets, since the target only moves on an all-easy/missed-twice verdict.
+function baseLoadFor(sessions, session, item) {
+  const last = rules.lastWorkingLoad(sessions, item.exerciseId, session?.id);
+  return last != null ? last : num(item.targetLoad);
 }
 
 function byId(list) {
@@ -224,11 +238,18 @@ function itemFor(program, exerciseId) {
 }
 
 function suggestionFor({ session, sessions, entry, item, exercise, settings }) {
+  // Verdict against the load these sets were actually done at (the last main
+  // set's weight), not the stored target (v1.14.1): "hold" then means "keep
+  // what was lifted", and "raise" steps up from it.
+  const mains = rules.workingSets(entry.sets).filter((s) => !s.drop);
+  const currentLoad = mains.length > 0
+    ? num(mains[mains.length - 1].weight)
+    : baseLoadFor(sessions, session, item);
   return rules.nextLoad({
     sets: entry.sets,
     targetReps: entry.targetReps,
-    currentLoad: item.targetLoad,
-    steps: stepsFor(exercise, settings),
+    currentLoad,
+    steps: stepsFor(exercise, settings, currentLoad),
     prevMissedReps: prevMissedReps(sessions, session, entry.exerciseId),
   });
 }
@@ -349,7 +370,7 @@ async function renderSessionIdle(root, ctx, data) {
     }));
   }
 
-  root.appendChild(renderStartCard(ctx, settings, programs, exercises, true));
+  root.appendChild(renderStartCard(ctx, settings, programs, exercises, sessions, true));
   root.appendChild(renderRecommendCard(ctx, data));
   root.appendChild(renderSkillCard(ctx, data));
 
@@ -511,7 +532,7 @@ function renderRecommendCard(ctx, data) {
   return card;
 }
 
-function renderStartCard(ctx, settings, programs, exercises, open) {
+function renderStartCard(ctx, settings, programs, exercises, sessions, open) {
   const { card, body } = quickCard(t("today.start.title"), { open });
 
   const weightPrograms = rules.sortPrograms(programs.filter((p) => p.kind === "weights"));
@@ -548,7 +569,10 @@ function renderStartCard(ctx, settings, programs, exercises, open) {
       const setsText = warmups > 0
         ? `${t("today.meta.warmup", { n: warmups })} + ${item.sets}×${repsText(item.reps)}`
         : `${item.sets}×${repsText(item.reps)}`;
-      line.append(name, el("div", "meta", `${setsText} · ${loadText(exercise, item.targetLoad, settings)}`));
+      // Preview shows the same base the session will open with (v1.14.1):
+      // last actually-lifted load first, stored target as fallback.
+      const shown = rules.lastWorkingLoad(sessions, item.exerciseId) ?? item.targetLoad;
+      line.append(name, el("div", "meta", `${setsText} · ${loadText(exercise, shown, settings)}`));
       previewEl.appendChild(line);
     }
   };
@@ -1377,7 +1401,7 @@ function renderActive(root, ctx, data, session) {
     if (mainCount < item.sets) return [];
     const last = lastMainSet(entry);
     if (!last) return [];
-    return rules.dropChain(last.weight, stepsFor(exercise, settings), 2);
+    return rules.dropChain(last.weight, stepsFor(exercise, settings, num(last.weight)), 2);
   }
   function dropPending(entry, item, exercise) {
     const chain = dropChainFor(entry, item, exercise);
@@ -1470,15 +1494,18 @@ function renderActive(root, ctx, data, session) {
   // else keeps the existing target-load / recovery-load behavior.
   function defaultDraftFor(entry, item, exercise) {
     if (!entry || !item) return { weight: 0, reps: 0 };
-    const steps = stepsFor(exercise, settings);
+    // All defaults derive from the base load: last session's actual weight,
+    // falling back to the stored target (v1.14.1).
+    const base = baseLoadFor(sessions, session, item);
+    const steps = stepsFor(exercise, settings, base);
     // Warm-up set about to open (v1.1.1 polish item 5): default the stepper
-    // to 50% of the item's target load, snapped to this exercise's inventory
-    // steps, regardless of method (a warm-up always precedes any working set
-    // in every method). Working sets keep the behavior below unchanged.
+    // to 50% of the base load, snapped to this exercise's inventory steps,
+    // regardless of method (a warm-up always precedes any working set in
+    // every method). Working sets keep the behavior below unchanged.
     const state = entryState(entry, item);
     const warmupTarget = num(item.warmupSets);
     if (state.warm < warmupTarget && state.working === 0) {
-      const plan = rules.warmupPlanLoads(item.targetLoad, warmupTarget, steps, settings.warmupStyle);
+      const plan = rules.warmupPlanLoads(base, warmupTarget, steps, settings.warmupStyle);
       return {
         weight: plan[Math.min(state.warm, plan.length - 1)] ?? 0,
         reps: entry.targetReps === "max" ? 0 : num(entry.targetReps),
@@ -1489,20 +1516,20 @@ function renderActive(root, ctx, data, session) {
     if (item.method === "dropset" && complete) {
       const last = lastMainSet(entry);
       return {
-        weight: last ? last.weight : item.targetLoad,
+        weight: last ? last.weight : base,
         reps: last ? last.reps : (entry.targetReps === "max" ? 0 : num(entry.targetReps)),
       };
     }
     if (item.method === "pyramid") {
-      const plan = rules.pyramidPlan(item.targetLoad, entry.targetReps, item.sets, steps);
+      const plan = rules.pyramidPlan(base, entry.targetReps, item.sets, steps);
       if (plan) {
         const idx = Math.min(mainWorking, plan.length - 1);
         return { weight: plan[idx].load, reps: plan[idx].reps };
       }
     }
     const weight = session.recovery
-      ? rules.recoveryLoad(item.targetLoad, settings.recoveryRule.factor, steps)
-      : item.targetLoad;
+      ? rules.recoveryLoad(base, settings.recoveryRule.factor, steps)
+      : base;
     const reps = entry.targetReps === "max" ? 0 : num(entry.targetReps);
     return { weight, reps };
   }
@@ -1591,15 +1618,16 @@ function renderActive(root, ctx, data, session) {
     if (badge) row.appendChild(badge);
     // Meta: warm-up count spelled out (so "3x8" is unambiguously working
     // sets only), and during recovery the applied load shown next to the
-    // program target ("75 lb -> 60 lb") to match what the stepper opens at.
+    // base load ("75 lb -> 60 lb") to match what the stepper opens at.
     const warmups = num(item.warmupSets);
     const setsText = warmups > 0
       ? `${t("today.meta.warmup", { n: warmups })} + ${item.sets}×${repsText(entry.targetReps)}`
       : `${item.sets}×${repsText(entry.targetReps)}`;
-    let load = loadText(exercise, item.targetLoad, settings);
-    if (session.recovery && exercise?.equipment !== "bodyweight" && item.targetLoad > 0) {
-      const adjusted = rules.recoveryLoad(item.targetLoad, settings.recoveryRule.factor, stepsFor(exercise, settings));
-      if (adjusted !== item.targetLoad) load = `${load} → ${loadText(exercise, adjusted, settings)}`;
+    const base = baseLoadFor(sessions, session, item);
+    let load = loadText(exercise, base, settings);
+    if (session.recovery && exercise?.equipment !== "bodyweight" && base > 0) {
+      const adjusted = rules.recoveryLoad(base, settings.recoveryRule.factor, stepsFor(exercise, settings, base));
+      if (adjusted !== base) load = `${load} → ${loadText(exercise, adjusted, settings)}`;
     }
     row.appendChild(el("div", "meta", `${setsText} · ${load}`));
     // Tap-to-select (v1.2): any non-active exercise can be made active out
@@ -1717,7 +1745,9 @@ function renderActive(root, ctx, data, session) {
   // naturally on the next pass).
   function renderSetEditor(entry, setIndex, exercise, label) {
     const set = entry.sets[setIndex];
-    const steps = stepsFor(exercise, settings);
+    // Healed against the weight being edited: the card re-renders per step,
+    // so the ladder keeps extending as the value climbs past a stale cap.
+    const steps = stepsFor(exercise, settings, num(draft.editWeight));
     const bodyweight = exercise?.equipment === "bodyweight";
     const box = el("div", "set-entry");
     box.appendChild(el("div", "hint", `${t("common.edit")} · ${label}`));
@@ -1744,6 +1774,7 @@ function renderActive(root, ctx, data, session) {
           onUp: () => {
             const next = rules.stepUp(draft.editWeight, steps);
             if (next != null) { draft.editWeight = next; renderCard(); }
+            else ctx.showToast(t("today.step.max"));
           },
         }),
         stepper(String(draft.editReps), t("common.reps"), {
@@ -1891,10 +1922,14 @@ function renderActive(root, ctx, data, session) {
     const state = entryState(entry, item);
     const warmupTarget = num(item.warmupSets);
     const isWarmup = state.warm < warmupTarget && state.working === 0;
-    const steps = stepsFor(exercise, settings);
+    // Healed against whichever is higher, the base load or the weight on the
+    // stepper (the card re-renders per step, so the ladder keeps extending
+    // as the value climbs past a stale cap).
+    const base = baseLoadFor(sessions, session, item);
+    const steps = stepsFor(exercise, settings, Math.max(num(draft.weight), base));
 
     const plan = item.method === "pyramid"
-      ? rules.pyramidPlan(item.targetLoad, entry.targetReps, item.sets, steps)
+      ? rules.pyramidPlan(base, entry.targetReps, item.sets, steps)
       : null;
 
     // Logged sets are tappable (v1.6.0): a tap opens an inline editor so a
@@ -2017,6 +2052,7 @@ function renderActive(root, ctx, data, session) {
             onUp: () => {
               const next = rules.stepUp(draft.weight, steps);
               if (next != null) { draft.weight = next; renderCard(); }
+              else ctx.showToast(t("today.step.max"));
             },
           },
         ),
@@ -2107,16 +2143,21 @@ function renderActive(root, ctx, data, session) {
     session.endedAt = Date.now();
 
     let programChanged = false;
-    for (const entry of session.entries) {
-      const item = itemFor(program, entry.exerciseId);
-      if (rules.workingSets(entry.sets).length < item.sets) continue;
-      const exercise = exercisesById[entry.exerciseId] || null;
-      const suggestion = suggestionFor({ session, sessions, entry, item, exercise, settings });
-      if (session.recovery || suggestion.action === "hold") continue;
-      const target = (program?.items || []).find((i) => i.exerciseId === entry.exerciseId);
-      if (target) {
-        target.targetLoad = suggestion.load;
-        programChanged = true;
+    // The target follows the verdict even on hold (v1.14.1): the verdict's
+    // base is this session's actual last working weight, so holding means
+    // "keep what was lifted", not "keep the stale stored target". Recovery
+    // sessions still never write back (their loads are deliberately reduced).
+    if (!session.recovery) {
+      for (const entry of session.entries) {
+        const item = itemFor(program, entry.exerciseId);
+        if (rules.workingSets(entry.sets).length < item.sets) continue;
+        const exercise = exercisesById[entry.exerciseId] || null;
+        const suggestion = suggestionFor({ session, sessions, entry, item, exercise, settings });
+        const target = (program?.items || []).find((i) => i.exerciseId === entry.exerciseId);
+        if (target && target.targetLoad !== suggestion.load) {
+          target.targetLoad = suggestion.load;
+          programChanged = true;
+        }
       }
     }
     if (programChanged) await put("programs", program);

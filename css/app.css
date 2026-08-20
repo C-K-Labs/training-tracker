@@ -382,10 +382,14 @@ button.chip { cursor: pointer; }
 
 /* iOS zoom triggers, killed at the source while pinch zoom stays available:
    sub-16px fields cause focus auto-zoom (covers inputs outside .field, e.g.
-   the log set editor and the onboarding code field), and rapid taps on
-   buttons register as double-tap zoom without touch-action: manipulation. */
+   the log set editor and the onboarding code field), and rapid taps register
+   as double-tap zoom without touch-action: manipulation. The property does
+   NOT inherit, so every element gets it (v1.14.1; controls alone left the
+   gaps between them, cup-grid spacing, card padding, still zooming on fast
+   double taps). Panning and pinch zoom remain allowed; the .filter chips'
+   own pan-x wins on specificity. */
 input, select, textarea { font-size: 16px; }
-button, input, select, textarea { touch-action: manipulation; }
+body, body * { touch-action: manipulation; }
 
 /* Empty state */
 .empty {
@@ -416,6 +420,11 @@ button, input, select, textarea { touch-action: manipulation; }
   border-top: 1px solid var(--line);
   padding: 6px 0 max(10px, env(safe-area-inset-bottom));
   z-index: 10;
+}
+/* While a text field is focused (js/app.js toggles this): the fixed bar
+   otherwise rides up on top of the phone keyboard (v1.14.1). */
+.tabbar.kb-hidden {
+  display: none;
 }
 .tab {
   flex: 1;

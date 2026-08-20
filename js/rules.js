@@ -73,6 +73,50 @@ export function stepDown(current, steps) {
   return best;
 }
 
+// Step increment for extending a ladder past its top: the equipment's own
+// configured step, or the gap between the two heaviest dumbbells for racks.
+export function stepIncrement(exercise, inventory) {
+  switch (exercise?.equipment) {
+    case "bodyweight":
+      return 0;
+    case "dumbbell": {
+      const list = [...(inventory?.dumbbells || [])].sort((a, b) => a - b);
+      if (list.length >= 2) {
+        const gap = +(list[list.length - 1] - list[list.length - 2]).toFixed(2);
+        if (gap > 0) return gap;
+      }
+      return 5;
+    }
+    case "barbell":
+    case "smith":
+      return (inventory?.plateMin ?? 2.5) * 2;
+    case "cable":
+      return inventory?.cableStep ?? 2.5;
+    default:
+      return inventory?.machineStep ?? 5;
+  }
+}
+
+// Heal a step ladder against the load actually in use (v1.14.1): a load
+// ABOVE the ladder's top means the configured cap (usually a stale
+// per-exercise override) contradicts observed reality, so the ladder is
+// extended past the top by `increment`, up to one step beyond the current
+// load. Without this the stepper dead-ends: stepUp returns null and stepDown
+// crashes all the way to the ladder's top (seen live: 75 lb -> 15 lb). At or
+// below the top the ladder is returned unchanged, so intentional caps still
+// cap.
+export function healSteps(steps, current, increment) {
+  const list = Array.isArray(steps) ? steps : [];
+  if (!Number.isFinite(current) || !Number.isFinite(increment) || increment <= 0) return list;
+  const top = list.length > 0 ? list[list.length - 1] : 0;
+  if (current <= top + 1e-9) return list;
+  const out = [...list];
+  for (let v = +(top + increment).toFixed(2); v <= current + increment + 1e-9; v = +(v + increment).toFixed(2)) {
+    out.push(v);
+  }
+  return out;
+}
+
 // Next-load suggestion (reference 3.7, simple state rule chosen in plan):
 //   all working sets hit target reps AND all rated easy -> raise one step
 //   any missed reps -> hold; missed in the previous session too -> lower one step
@@ -99,6 +143,28 @@ export function nextLoad({ sets, targetReps, currentLoad, steps, prevMissedReps 
       : { action: "increase", load: higher, reason: "all-easy" };
   }
   return { action: "hold", load: currentLoad, reason: "normal" };
+}
+
+// The load actually lifted last time: the final main working set (warm-ups
+// and drop sets excluded) of the most recent COMPLETED, non-recovery weights
+// session containing the exercise. This is the base a new session starts
+// from (v1.14.1), so weight moved in-session carries forward even while the
+// program's stored target holds (the target only moves on a nextLoad
+// verdict). Recovery sessions are skipped: their loads are deliberately
+// reduced (reference 3.6) and must not compound into later prescriptions.
+export function lastWorkingLoad(sessions, exerciseId, excludeSessionId = null) {
+  const done = (sessions || [])
+    .filter((s) => s.kind === "weights" && s.endedAt && !s.recovery && s.id !== excludeSessionId)
+    .sort((a, b) => (a.date === b.date ? (a.endedAt || 0) - (b.endedAt || 0) : a.date.localeCompare(b.date)));
+  for (let i = done.length - 1; i >= 0; i--) {
+    const entry = (done[i].entries || []).find((e) => e.exerciseId === exerciseId);
+    if (!entry) continue;
+    const mains = workingSets(entry.sets).filter((s) => !s.drop);
+    if (mains.length === 0) continue;
+    const w = Number(mains[mains.length - 1].weight);
+    return Number.isFinite(w) ? w : null;
+  }
+  return null;
 }
 
 // Return-from-layoff load (reference 3.6): factor of the last recorded load,
